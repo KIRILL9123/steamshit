@@ -8,17 +8,21 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import type { AppInfo } from '@/types/domain';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
+import type { AppInfo, Match, MatchDetail, RoundProgression } from '@/types/domain';
 
 /** Unwrap a `Result<T, AppError>` from Rust into a plain JS promise. */
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  try {
-    return await invoke<T>(cmd, args);
-  } catch (e) {
-    // Tauri serialises `AppError` as `{ kind, message }`; if the rejection
-    // already matches, just throw. Otherwise rethrow the raw value.
-    throw e;
-  }
+  return invoke<T>(cmd, args);
+}
+
+export interface ImportProgress {
+  stage: 'start' | 'hashing' | 'parsing' | 'writing' | 'stats' | 'done';
+  path?: string;
+  fraction?: number;
+  label?: string;
+  match_id?: number;
 }
 
 export const api = {
@@ -30,17 +34,41 @@ export const api = {
     return call<AppInfo>('app_info');
   },
 
-  // --- matches (week 3+) ---
-  // importDemo(path): Promise<number> { return call('import_demo', { path }); }
-  // listMatches(): Promise<Match[]> { return call('list_matches'); }
-  // getMatch(id): Promise<Match> { return call('get_match', { id }); }
+  // --- matches (week 4) ---
+  async importDemo(path: string): Promise<Match> {
+    return call<Match>('import_demo', { path });
+  },
+  listMatches(): Promise<Match[]> {
+    return call<Match[]>('list_matches');
+  },
+  getMatch(id: number): Promise<MatchDetail> {
+    return call<MatchDetail>('get_match', { id });
+  },
+  deleteMatch(id: number): Promise<void> {
+    return call<void>('delete_match', { id });
+  },
+  getRoundProgression(id: number): Promise<RoundProgression[]> {
+    return call<RoundProgression[]>('get_round_progression', { id });
+  },
 
-  // --- analytics (week 4+) ---
-  // matchOverview(id): Promise<OverviewPayload> { ... }
-  // heatmap(id, opts): Promise<HeatmapPayload> { ... }
+  // --- import UI helpers ---
+  async pickDemoFile(): Promise<string | null> {
+    const picked = await openFileDialog({
+      multiple: false,
+      directory: false,
+      filters: [
+        { name: 'CS2 Demo', extensions: ['dem', 'zst'] },
+        { name: 'Все файлы', extensions: ['*'] },
+      ],
+    });
+    if (Array.isArray(picked)) return picked[0] ?? null;
+    return picked ?? null;
+  },
 
-  // --- sidecar (week 12+) ---
-  // sidecarPing(): Promise<boolean> { ... }
+  /** Subscribe to `import:progress` events. Returns an unsubscribe fn. */
+  onImportProgress(handler: (p: ImportProgress) => void): Promise<UnlistenFn> {
+    return listen<ImportProgress>('import:progress', (e) => handler(e.payload));
+  },
 };
 
 export type Api = typeof api;

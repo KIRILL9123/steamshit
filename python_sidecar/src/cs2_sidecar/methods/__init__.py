@@ -1,5 +1,17 @@
-"""Sidecar method stubs (week 1). Real implementations land in weeks 8–12."""
+"""Sidecar methods.
 
-from . import anticheat, coach, navmesh, system, trends, visibility
+`parser` (week 4) parses .dem files via awpy and returns JSON for the
+Rust core. The others are stubs that land in weeks 8–12.
+"""
 
-__all__ = ["anticheat", "coach", "navmesh", "system", "trends", "visibility"]
+from . import anticheat, coach, navmesh, parser, system, trends, visibility
+
+__all__ = [
+    "anticheat",
+    "coach",
+    "navmesh",
+    "parser",
+    "system",
+    "trends",
+    "visibility",
+]

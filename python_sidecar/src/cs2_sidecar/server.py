@@ -24,6 +24,7 @@ from cs2_sidecar.methods import (
     anticheat,
     coach,
     navmesh,
+    parser,
     system,
     trends,
     visibility,
@@ -46,6 +47,7 @@ log = logging.getLogger("sidecar")
 METHODS: dict[str, Callable[[dict], dict]] = {
     "system.ping":                   lambda p: system.ping(p),
     "system.version":                lambda p: system.version(p),
+    "parser.parse_demo":             lambda p: parser.parse_demo(p),
     "visibility.compute":            lambda p: visibility.compute(p),
     "navmesh.find_path":             lambda p: navmesh.find_path(p),
     "anticheat.run_heuristic":       lambda p: anticheat.run_heuristic(p),

@@ -23,6 +23,12 @@ export interface AppInfo {
   sidecarAlive: boolean;
 }
 
+/** Composite response from `get_match(id)` — flattens header + players + stats. */
+export interface MatchDetail extends Match {
+  players: Player[];
+  stats: PlayerMatchStats[];
+}
+
 export interface Match {
   id: number;
   filePath: string;
@@ -60,6 +66,16 @@ export interface Round {
   bombSite: string | null;
   ctScore: number | null;
   tScore: number | null;
+}
+
+/** Lightweight per-round score for the Overview line chart. */
+export interface RoundProgression {
+  roundNum: number;
+  ctScore: number;
+  tScore: number;
+  winner: string | null;
+  reason: string | null;
+  bombPlant: boolean;
 }
 
 export interface Kill {

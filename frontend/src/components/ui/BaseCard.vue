@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import Icon from './Icon.vue';
-
 withDefaults(
   defineProps<{
     title?: string;

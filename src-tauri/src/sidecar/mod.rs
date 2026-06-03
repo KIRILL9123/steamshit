@@ -78,6 +78,8 @@ pub mod methods {
     pub const PING: &str = "system.ping";
     pub const VERSION: &str = "system.version";
 
+    pub const PARSE_DEMO: &str = "parser.parse_demo";
+
     pub const VISIBILITY_COMPUTE: &str = "visibility.compute";
     pub const NAVMESH_FIND_PATH: &str = "navmesh.find_path";
     pub const ANTICHEAT_RUN_HEURISTIC: &str = "anticheat.run_heuristic";
@@ -151,7 +153,10 @@ impl SidecarHandle {
     /// Quick health check (returns `true` if the sidecar responded to a
     /// `system.ping` within a short timeout).
     pub async fn is_alive(&self) -> bool {
-        match self.call(methods::PING, Value::Object(Default::default())).await {
+        match self
+            .call(methods::PING, Value::Object(Default::default()))
+            .await
+        {
             Ok(v) => v.as_str().map(|s| s == "pong").unwrap_or(false),
             Err(_) => false,
         }
@@ -164,6 +169,7 @@ impl SidecarHandle {
         let mut m = HashMap::new();
         m.insert(methods::PING, "system");
         m.insert(methods::VERSION, "system");
+        m.insert(methods::PARSE_DEMO, "parser");
         m.insert(methods::VISIBILITY_COMPUTE, "analytics");
         m.insert(methods::NAVMESH_FIND_PATH, "analytics");
         m.insert(methods::ANTICHEAT_RUN_HEURISTIC, "analytics");

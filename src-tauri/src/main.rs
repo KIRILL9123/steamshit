@@ -1,13 +1,13 @@
 // CS2 Demo Analyzer — Tauri 2 entry point
 //
-// Week 1: minimal shell. Hooks up AppState, opens the SQLite pool, applies
-// migrations, registers command stubs, opens the main window. Business
-// logic (parser/db/sidecar runtime) is added in subsequent weeks — see
-// docs/TZ.md §13 for the roadmap.
+// Week 4: registers matches commands (import/list/get/delete) and wires
+// the sidecar handle. Business logic (parser/db/sidecar) is split across
+// `core/` and `sidecar/`; see docs/TZ.md §13 for the roadmap.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::Manager;
+
 use cs2_analyzer_lib::AppState;
 
 fn main() {
@@ -35,29 +35,61 @@ fn main() {
         .plugin(tauri_plugin_os::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
-            // Week 1: ping + app_info as smoke tests
+            // Week 1 smoke tests
             cs2_analyzer_lib::commands::system::ping,
             cs2_analyzer_lib::commands::system::app_info,
+            // Week 4: matches
+            cs2_analyzer_lib::commands::matches::import_demo,
+            cs2_analyzer_lib::commands::matches::list_matches,
+            cs2_analyzer_lib::commands::matches::get_match,
+            cs2_analyzer_lib::commands::matches::delete_match,
+            cs2_analyzer_lib::commands::matches::get_round_progression,
         ])
         .setup(move |app| {
             tracing::info!("CS2 Analyzer starting…");
             tracing::info!("App data dir: {:?}", app.path().app_data_dir().ok());
 
-            // Apply migrations synchronously at startup. Refinery opens its
-            // own short-lived connection; the pool is reserved for the
-            // long-running workers.
+            // Apply migrations synchronously at startup.
             if let Err(e) = cs2_analyzer_lib::core::db::run_migrations(&db_path) {
                 tracing::error!("failed to apply migrations: {e}");
                 return Err(Box::new(e) as Box<dyn std::error::Error>);
             }
 
-            // Initialise the DB pool (eagerly) so the first command doesn't
-            // pay the open cost.
+            // Initialise the DB pool eagerly.
             let state: tauri::State<cs2_analyzer_lib::AppState> = app.state();
             if let Err(e) = futures::executor::block_on(state.init_db()) {
                 tracing::error!("failed to open db pool: {e}");
                 return Err(Box::new(e) as Box<dyn std::error::Error>);
             }
+
+            // Configure the sidecar. In dev (debug builds) we run the
+            // Python module directly via the system Python. In release
+            // builds the binary is bundled by PyInstaller (see week 12)
+            // and lives under `binaries/python_sidecar-<triple>.exe`.
+            let sidecar_path = std::env::var("CS2_SIDECAR_BIN")
+                .ok()
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    if cfg!(debug_assertions) {
+                        // Dev: defer to a small launcher that runs
+                        // `python -m cs2_sidecar`. The launcher is a
+                        // `cs2_sidecar.cmd` shim next to the Tauri exe
+                        // (see `src-tauri/binaries/`).
+                        let exe_dir = std::env::current_exe()
+                            .ok()
+                            .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+                        exe_dir.map(|d| d.join("binaries").join("cs2_sidecar.cmd"))
+                    } else {
+                        // Release: the bundled PyInstaller binary.
+                        let exe_dir = std::env::current_exe()
+                            .ok()
+                            .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+                        exe_dir.map(|d| d.join("binaries").join("cs2_sidecar.exe"))
+                    }
+                })
+                .unwrap_or_else(|| std::path::PathBuf::from("python_sidecar"));
+            tracing::info!("sidecar path: {}", sidecar_path.display());
+            futures::executor::block_on(state.init_sidecar(sidecar_path));
 
             Ok(())
         })

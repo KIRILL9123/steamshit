@@ -158,10 +158,7 @@ impl SidecarClient {
     }
 }
 
-async fn reader_task(
-    inner: Arc<SidecarClientInner>,
-    stdout: tokio::process::ChildStdout,
-) {
+async fn reader_task(inner: Arc<SidecarClientInner>, stdout: tokio::process::ChildStdout) {
     let mut lines = BufReader::new(stdout).lines();
     loop {
         match lines.next_line().await {

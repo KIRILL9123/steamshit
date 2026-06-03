@@ -1,97 +1,89 @@
-//! `.dem` / `.dem.zst` parser — a thin, typed wrapper around the
-//! `demoparser2` crate.
+//! Demo parser — a thin Rust wrapper around the Python sidecar's
+//! `parser.parse_demo` method (which uses `awpy` over `demoparser2`).
 //!
-//! The full implementation lands in week 4 (see docs/TZ.md §6.1). This
-//! skeleton defines the public surface so command stubs, mocks, and the
-//! eventual worker pipeline can be wired up against stable types today.
+//! The actual file parsing is CPU-bound and lives in another process; this
+//! module is just the IPC shim + typed deserialisation of the response.
 //!
-//! Design notes:
-//!   * Parsing is **blocking and CPU-bound**, so it runs inside
-//!     `tokio::task::spawn_blocking` from the command layer — never on the
-//!     async runtime directly.
-//!   * Output is exposed as `polars::DataFrame`s for fast aggregation;
-//!     `ParsedDemo` owns the frames and they live for the duration of the
-//!     parse result.
-//!   * Progress is reported via a `crossbeam_channel::Sender<ParseProgress>`
-//!     (or `tokio::sync::mpsc` in the async wrapper). The Tauri command
-//!     layer bridges that to a Tauri event so the UI can render a progress
-//!     bar.
+//! Progress reporting: the import command emits Tauri events with the
+//! following shape:
+//!   * `import:start`     — `{ "path": "..." }`
+//!   * `import:parsing`   — `{ "fraction": 0.2, "label": "Парсинг..." }`
+//!   * `import:writing`   — `{ "fraction": 0.7 }`
+//!   * `import:done`      — `{ "match_id": 42 }`
+//!   * `import:error`     — `{ "message": "..." }`
+//!
+//! The Python sidecar is invoked synchronously; we report progress as the
+//! orchestrator (`core::import`) advances through its stages.
 
 use std::path::{Path, PathBuf};
 
-use polars::prelude::DataFrame;
+use serde::{Deserialize, Serialize};
 
-use crate::error::AppResult;
-use crate::core::models::Vec3;
+use crate::error::{AppError, AppResult};
+use crate::sidecar::SidecarHandle;
 
-/// One-step progress report (0.0 .. 1.0) emitted during parsing.
-#[derive(Debug, Clone, Copy)]
-pub struct ParseProgress {
-    /// 0.0 at the start, 1.0 when fully parsed.
-    pub fraction: f32,
-    /// Optional human-readable label (e.g. "Reading events…", "Building ticks…").
-    pub label: Option<&'static str>,
-}
-
-impl ParseProgress {
-    pub const fn new(fraction: f32) -> Self {
-        Self {
-            fraction,
-            label: None,
-        }
-    }
-
-    pub const fn labelled(fraction: f32, label: &'static str) -> Self {
-        Self {
-            fraction,
-            label: Some(label),
-        }
-    }
-}
-
-/// Parsed match: header metadata + per-event dataframes.
+/// Parsed demo as returned by the Python sidecar. Field naming mirrors
+/// the Python module so deserialisation is straightforward.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedDemo {
-    pub header: MatchHeader,
-    pub rounds: DataFrame,
-    pub kills: DataFrame,
-    pub damages: DataFrame,
-    pub grenades: DataFrame,
-    pub smokes: DataFrame,
-    pub infernos: DataFrame,
-    pub shots: DataFrame,
-    pub bomb: DataFrame,
-    pub ticks: Option<DataFrame>,
+    pub header: HeaderJson,
+    pub players: Vec<PlayerJson>,
+    pub rounds: Vec<serde_json::Value>,
+    pub kills: Vec<serde_json::Value>,
+    pub damages: Vec<serde_json::Value>,
+    pub grenades: Vec<serde_json::Value>,
+    pub smokes: Vec<serde_json::Value>,
+    pub infernos: Vec<serde_json::Value>,
+    pub shots: Vec<serde_json::Value>,
+    pub bomb: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub ticks: Vec<serde_json::Value>,
 }
 
-/// Lightweight header returned before the heavy dataframe work.
-#[derive(Debug, Clone)]
-pub struct MatchHeader {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeaderJson {
     pub map_name: String,
     pub server_name: Option<String>,
     pub client_name: Option<String>,
-    pub demo_type: String,
+    pub demo_type: Option<String>,
     pub match_date: Option<String>,
     pub duration_ticks: Option<u32>,
     pub tick_rate: Option<u32>,
-    pub players: Vec<PlayerHeader>,
 }
 
-#[derive(Debug, Clone)]
-pub struct PlayerHeader {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerJson {
     pub name: String,
     pub steam_id: Option<String>,
-    pub team: String,
+    pub team: Option<String>,
+    pub user_id: Option<i64>,
 }
 
-/// Main entry point. Construct with a path, then call `parse` (or
-/// `parse_with_progress`).
-pub struct DemoParser {
+#[derive(Debug, Clone, Copy)]
+pub struct ParseOptions {
+    pub include_ticks: bool,
+}
+
+impl Default for ParseOptions {
+    fn default() -> Self {
+        Self {
+            include_ticks: false,
+        }
+    }
+}
+
+/// DemoParser — constructed with a sidecar handle and an optional path.
+/// Path is optional because the orchestrator (`core::import`) may stream
+/// progress before parsing starts.
+pub struct DemoParser<'a> {
+    sidecar: &'a SidecarHandle,
     path: PathBuf,
 }
 
-impl DemoParser {
-    pub fn new(path: impl AsRef<Path>) -> Self {
+impl<'a> DemoParser<'a> {
+    pub fn new(sidecar: &'a SidecarHandle, path: impl AsRef<Path>) -> Self {
         Self {
+            sidecar,
             path: path.as_ref().to_path_buf(),
         }
     }
@@ -100,35 +92,24 @@ impl DemoParser {
         &self.path
     }
 
-    /// Parse without progress reporting. The real implementation goes here
-    /// in week 4 — for now we return a structured "not yet implemented"
-    /// error so the call site compiles.
-    pub fn parse(&self) -> AppResult<ParsedDemo> {
-        self.parse_with_progress(|_| {})
+    /// Parse via the sidecar. Returns a `ParsedDemo` ready to be written
+    /// to the DB.
+    pub async fn parse(&self) -> AppResult<ParsedDemo> {
+        self.parse_with(ParseOptions::default()).await
     }
 
-    /// Parse with a per-tick progress callback.
-    ///
-    /// The callback is invoked synchronously from the parsing thread; it
-    /// should be cheap (e.g. forward to a channel). For week 1 this is a
-    /// stub.
-    pub fn parse_with_progress<F>(&self, _on_progress: F) -> AppResult<ParsedDemo>
-    where
-        F: FnMut(ParseProgress) + Send,
-    {
-        // Week 1: return a structured "not implemented" via the parser
-        // module. The actual `demoparser2::Demo::new(path)?.parse_xxx()` call
-        // chain is wired in week 4.
-        Err(crate::error::AppError::Other(format!(
-            "DemoParser::parse is not yet implemented (path: {})",
-            self.path.display()
-        )))
+    pub async fn parse_with(&self, opts: ParseOptions) -> AppResult<ParsedDemo> {
+        let params = serde_json::json!({
+            "path": self.path.to_string_lossy(),
+            "include_ticks": opts.include_ticks,
+        });
+        let result = self
+            .sidecar
+            .call(crate::sidecar::methods::PARSE_DEMO, params)
+            .await
+            .map_err(|e| AppError::parse(format!("sidecar parse_demo: {e}")))?;
+        let parsed: ParsedDemo = serde_json::from_value(result)
+            .map_err(|e| AppError::parse(format!("decode parse_demo response: {e}")))?;
+        Ok(parsed)
     }
-}
-
-/// Helper for callers that need a single position struct (`Vec3`) from
-/// `(x, y, z)` columns. Provided here so models/commands can use one type.
-#[allow(dead_code)]
-fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
-    Vec3::new(x, y, z)
 }

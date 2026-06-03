@@ -40,13 +40,16 @@ r2d2 = "0.8"
 r2d2_sqlite = "0.24"
 refinery = { version = "0.8", features = ["rusqlite"] }
 
-# DataFrames
+# DataFrames — used by the sidecar contract (Polars → JSON in Python) and by
+# any Rust-side analytics we want to run on already-parsed data. We keep
+# the surface area small (parquet + ipc + lazy) since most aggregation
+# happens server-side (SQL) once events are in SQLite.
 polars = { version = "0.40", default-features = false, features = ["parquet", "ipc", "lazy", "round_series"] }
 
-# Demo parser
-# demoparser2 = { git = "https://github.com/LaihoE/demoparser" }
+# Demo parsing is delegated to the Python sidecar (awpy / demoparser2).
+# See `python_sidecar/src/cs2_sidecar/methods/parser.py`.
 
-# Compression
+# Compression (for .dem.zst and any future in-process zstd work)
 zstd = "0.13"
 
 # Math/3D

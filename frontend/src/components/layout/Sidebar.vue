@@ -27,12 +27,12 @@ const items: NavItem[] = [
 const matchItems = computed<NavItem[]>(() =>
   matchId.value
     ? [
-        { to: `/match/${matchId.value}/overview`,  label: 'Обзор',     icon: 'gauge',      group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/replay`,    label: 'Реплей',    icon: 'play',       group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/heatmaps',  label: 'Тепловые',  icon: 'flame',      group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/utility`,   label: 'Утилиты',   icon: 'zap',        group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/anticheat`, label: 'Античит',   icon: 'shield-alert', group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/coach`,     label: 'Коуч',      icon: 'brain',      group: 'match', matchId: true },
+        { to: `/match/${matchId.value}/overview`,  label: 'Обзор',     icon: 'gauge',         group: 'match', matchId: true },
+        { to: `/match/${matchId.value}/replay`,    label: 'Реплей',    icon: 'play',          group: 'match', matchId: true },
+        { to: `/match/${matchId.value}/heatmaps`,  label: 'Тепловые',  icon: 'flame',         group: 'match', matchId: true },
+        { to: `/match/${matchId.value}/utility`,   label: 'Утилиты',   icon: 'zap',           group: 'match', matchId: true },
+        { to: `/match/${matchId.value}/anticheat`, label: 'Античит',   icon: 'shield-alert',  group: 'match', matchId: true },
+        { to: `/match/${matchId.value}/coach`,     label: 'Коуч',      icon: 'brain',         group: 'match', matchId: true },
       ]
     : []
 );

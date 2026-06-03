@@ -4,4 +4,5 @@
 //! its feature is implemented. The binary's `invoke_handler!` lists only
 //! currently-wired commands.
 
+pub mod matches;
 pub mod system;

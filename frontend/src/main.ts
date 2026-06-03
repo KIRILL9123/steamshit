@@ -7,4 +7,8 @@ import './styles/main.css';
 const app = createApp(App);
 app.use(createPinia());
 app.use(router);
+app.config.errorHandler = (err) => {
+  alert('Vue Error: ' + err);
+  console.error(err);
+};
 app.mount('#app');

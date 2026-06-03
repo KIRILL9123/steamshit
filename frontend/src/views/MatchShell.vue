@@ -7,11 +7,9 @@ import { RouterView } from 'vue-router';
 </script>
 
 <template>
-  <RouterView v-slot="{ Component }">
-    <transition name="fade" mode="out-in">
-      <component :is="Component" />
-    </transition>
-  </RouterView>
+  <div class="flex h-full w-full flex-col">
+    <RouterView />
+  </div>
 </template>
 
 <style scoped>

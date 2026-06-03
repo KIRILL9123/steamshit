@@ -28,3 +28,8 @@ router.afterEach((to) => {
   const t = (to.meta?.title as string) || '';
   document.title = t ? `${t} · CS2 Analyzer` : 'CS2 Analyzer';
 });
+
+router.onError((err) => {
+  alert('Router Error: ' + err);
+  console.error(err);
+});

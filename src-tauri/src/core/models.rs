@@ -147,6 +147,7 @@ impl CoachCategory {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Match {
     pub id: u64,
     pub file_path: String,
@@ -163,6 +164,7 @@ pub struct Match {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Player {
     pub match_id: u64,
     pub steam_id: Option<String>,
@@ -173,6 +175,7 @@ pub struct Player {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Round {
     pub id: u64,
     pub match_id: u64,
@@ -189,6 +192,7 @@ pub struct Round {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Kill {
     pub id: u64,
     pub match_id: u64,
@@ -210,6 +214,7 @@ pub struct Kill {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Damage {
     pub id: u64,
     pub match_id: u64,
@@ -224,6 +229,7 @@ pub struct Damage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Grenade {
     pub id: u64,
     pub match_id: u64,
@@ -238,6 +244,7 @@ pub struct Grenade {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BlindEvent {
     pub id: u64,
     pub match_id: u64,
@@ -249,6 +256,7 @@ pub struct BlindEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BombEvent {
     pub id: u64,
     pub match_id: u64,
@@ -261,6 +269,7 @@ pub struct BombEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Equipment {
     pub id: u64,
     pub match_id: u64,
@@ -276,6 +285,7 @@ pub struct Equipment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlayerMatchStats {
     pub match_id: u64,
     pub player: String,
@@ -305,6 +315,7 @@ pub struct PlayerMatchStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AnticheatFlag {
     pub id: u64,
     pub match_id: u64,
@@ -316,6 +327,7 @@ pub struct AnticheatFlag {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CoachTip {
     pub id: u64,
     pub match_id: u64,
@@ -335,6 +347,7 @@ pub struct CoachTip {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
@@ -354,6 +367,7 @@ impl Vec3 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSetting {
     pub key: String,
     pub value: Option<String>,
@@ -361,6 +375,7 @@ pub struct AppSetting {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MapCalibration {
     pub map_name: String,
     pub calibration_json: String,

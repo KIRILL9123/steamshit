@@ -11,11 +11,7 @@ import { RouterView } from 'vue-router';
     <div class="flex min-h-0 flex-1">
       <Sidebar />
       <main class="min-w-0 flex-1 overflow-auto bg-bg-base">
-        <RouterView v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <component :is="Component" />
-          </transition>
-        </RouterView>
+        <RouterView />
       </main>
     </div>
     <ToastHost />

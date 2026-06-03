@@ -4,5 +4,9 @@
 //! its feature is implemented. The binary's `invoke_handler!` lists only
 //! currently-wired commands.
 
+pub mod anticheat;
+pub mod coach;
+pub mod heatmaps;
 pub mod matches;
+pub mod overview;
 pub mod system;

@@ -22,9 +22,10 @@ fn main() {
 
     // Build the application state. We resolve the data dir eagerly so the
     // DB pool can be created in `setup()` below.
-    let state = AppState::new();
-    let data_dir = futures::executor::block_on(state.data_dir());
+    let temp_state = AppState::new();
+    let data_dir = futures::executor::block_on(temp_state.data_dir());
     let db_path = data_dir.join("app.db");
+    let state = AppState::with_paths(db_path.clone(), data_dir.clone());
     tracing::info!("data dir: {}", data_dir.display());
     tracing::info!("db path:  {}", db_path.display());
 
@@ -44,6 +45,18 @@ fn main() {
             cs2_analyzer_lib::commands::matches::get_match,
             cs2_analyzer_lib::commands::matches::delete_match,
             cs2_analyzer_lib::commands::matches::get_round_progression,
+            // Anticheat
+            cs2_analyzer_lib::commands::anticheat::get_anticheat_flags,
+            cs2_analyzer_lib::commands::anticheat::compute_anticheat,
+            // Coach
+            cs2_analyzer_lib::commands::coach::get_coach_tips,
+            cs2_analyzer_lib::commands::coach::regenerate_coach_tips,
+            // Heatmaps
+            cs2_analyzer_lib::commands::heatmaps::get_heatmap_data,
+            // Overview / replay
+            cs2_analyzer_lib::commands::overview::list_rounds,
+            cs2_analyzer_lib::commands::overview::get_round_kills,
+            cs2_analyzer_lib::commands::overview::get_round_grenades,
         ])
         .setup(move |app| {
             tracing::info!("CS2 Analyzer starting…");
@@ -71,14 +84,9 @@ fn main() {
                 .map(std::path::PathBuf::from)
                 .or_else(|| {
                     if cfg!(debug_assertions) {
-                        // Dev: defer to a small launcher that runs
-                        // `python -m cs2_sidecar`. The launcher is a
-                        // `cs2_sidecar.cmd` shim next to the Tauri exe
-                        // (see `src-tauri/binaries/`).
-                        let exe_dir = std::env::current_exe()
-                            .ok()
-                            .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-                        exe_dir.map(|d| d.join("binaries").join("cs2_sidecar.cmd"))
+                        // Dev: point directly to the local Python virtual environment.
+                        let root_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                        Some(root_dir.join("..").join("python_sidecar").join(".venv").join("Scripts").join("cs2-sidecar.exe"))
                     } else {
                         // Release: the bundled PyInstaller binary.
                         let exe_dir = std::env::current_exe()

@@ -10,11 +10,17 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import type { AppInfo, Match, MatchDetail, RoundProgression } from '@/types/domain';
+import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip } from '@/types/domain';
 
-/** Unwrap a `Result<T, AppError>` from Rust into a plain JS promise. */
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  return invoke<T>(cmd, args);
+  try {
+    return await invoke<T>(cmd, args);
+  } catch (e: any) {
+    if (e && typeof e === 'object' && 'message' in e) {
+      throw new Error(e.message);
+    }
+    throw e;
+  }
 }
 
 export interface ImportProgress {
@@ -23,6 +29,37 @@ export interface ImportProgress {
   fraction?: number;
   label?: string;
   match_id?: number;
+}
+
+export interface HeatmapPoint {
+  x: number;
+  y: number;
+  kind: 'kill_attacker' | 'kill_victim';
+}
+
+export interface RoundKillEvent {
+  tick: number | null;
+  attacker: string;
+  victim: string;
+  weapon: string;
+  headshot: boolean;
+  wallbang: boolean;
+  thruSmoke: boolean;
+  attackerX: number | null;
+  attackerY: number | null;
+  victimX: number | null;
+  victimY: number | null;
+  distance: number | null;
+}
+
+export interface RoundGrenadeEvent {
+  throwTick: number | null;
+  thrower: string;
+  nadeType: string;
+  throwX: number | null;
+  throwY: number | null;
+  landX: number | null;
+  landY: number | null;
 }
 
 export const api = {
@@ -49,6 +86,38 @@ export const api = {
   },
   getRoundProgression(id: number): Promise<RoundProgression[]> {
     return call<RoundProgression[]>('get_round_progression', { id });
+  },
+
+  // --- anticheat ---
+  getAnticheatFlags(matchId: number): Promise<AnticheatFlag[]> {
+    return call<AnticheatFlag[]>('get_anticheat_flags', { id: matchId });
+  },
+  computeAnticheat(matchId: number): Promise<AnticheatFlag[]> {
+    return call<AnticheatFlag[]>('compute_anticheat', { id: matchId });
+  },
+
+  // --- coach ---
+  getCoachTips(matchId: number, player?: string): Promise<CoachTip[]> {
+    return call<CoachTip[]>('get_coach_tips', { id: matchId, player: player ?? null });
+  },
+  regenerateCoachTips(matchId: number): Promise<CoachTip[]> {
+    return call<CoachTip[]>('regenerate_coach_tips', { id: matchId });
+  },
+
+  // --- heatmaps ---
+  getHeatmapData(matchId: number, player?: string): Promise<HeatmapPoint[]> {
+    return call<HeatmapPoint[]>('get_heatmap_data', { id: matchId, player: player ?? null });
+  },
+
+  // --- replay ---
+  listRounds(matchId: number): Promise<Round[]> {
+    return call<Round[]>('list_rounds', { id: matchId });
+  },
+  getRoundKills(roundId: number): Promise<RoundKillEvent[]> {
+    return call<RoundKillEvent[]>('get_round_kills', { roundId });
+  },
+  getRoundGrenades(roundId: number): Promise<RoundGrenadeEvent[]> {
+    return call<RoundGrenadeEvent[]>('get_round_grenades', { roundId });
   },
 
   // --- import UI helpers ---

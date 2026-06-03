@@ -6,6 +6,8 @@
 //! `AppError` into the IPC error envelope.
 
 pub mod analytics;
+pub mod anticheat;
+pub mod coach;
 pub mod db;
 pub mod error_reporter;
 pub mod import;

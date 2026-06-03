@@ -1,0 +1,60 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Local data
+data/
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build artifacts
+build/dist/
+build/release/
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.msi
+
+# Test fixtures (download via tools/seed_test_db.sh)
+tests/fixtures/*.dem
+tests/fixtures/*.dem.zst
+src-tauri/tests/fixtures/*.dem
+python_sidecar/tests/fixtures/*.dem
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+desktop.ini

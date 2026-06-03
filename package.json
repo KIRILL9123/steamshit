@@ -1,0 +1,42 @@
+{
+  "name": "cs2-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CS2 Demo Analyzer — Tauri 2 + Vue 3 + Rust + Python sidecar",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:frontend": "cd frontend && pnpm dev",
+    "dev:tauri": "tauri dev",
+    "build": "tauri build",
+    "build:frontend": "cd frontend && pnpm build",
+    "build:debug": "tauri build --debug",
+    "lint": "pnpm lint:js && pnpm lint:rs && pnpm lint:py",
+    "lint:js": "cd frontend && pnpm lint",
+    "lint:rs": "cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo fmt --check",
+    "lint:py": "cd python_sidecar && ruff check . && ruff format --check .",
+    "format": "pnpm format:js && pnpm format:rs && pnpm format:py",
+    "format:js": "cd frontend && pnpm format",
+    "format:rs": "cd src-tauri && cargo fmt",
+    "format:py": "cd python_sidecar && ruff format .",
+    "test": "pnpm test:rs && pnpm test:py && pnpm test:js",
+    "test:rs": "cd src-tauri && cargo test",
+    "test:py": "cd python_sidecar && pytest",
+    "test:js": "cd frontend && pnpm test:unit",
+    "typecheck": "cd frontend && pnpm typecheck",
+    "tauri": "tauri",
+    "tools:extract-maps": "python tools/extract_maps.py",
+    "tools:build-python": "bash tools/build_python.sh"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18.18",
+    "pnpm": ">=8.0",
+    "rust": ">=1.75",
+    "python": ">=3.11"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

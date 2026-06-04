@@ -47,6 +47,8 @@
       ]
     },
     "shell:default",
-    "os:default"
+    "os:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

@@ -87,6 +87,15 @@ pub async fn get_round_progression(
     repo::list_round_progression(&pool, id).map_err(Into::into)
 }
 
+#[tauri::command]
+pub async fn get_utility_throws(
+    state: State<'_, AppState>,
+    id: u64,
+) -> Result<Vec<crate::core::models::UtilityStats>, AppError> {
+    let pool = state.db().await?;
+    repo::get_utility_throws(&pool, id)
+}
+
 fn list_stats(pool: &DbPool, match_id: u64) -> AppResult<Vec<PlayerMatchStats>> {
     let conn = pool.get().map_err(map_pool_err)?;
     let mut stmt = conn

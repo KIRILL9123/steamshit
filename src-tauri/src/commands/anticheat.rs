@@ -22,7 +22,12 @@ pub async fn get_anticheat_flags(
     }
 
     // Run fresh analysis
-    let flags = anticheat::analyse(&pool, id)?;
+    let sidecar = state
+        .sidecar()
+        .await
+        .ok_or_else(|| AppError::Other("Sidecar not initialized".into()))?;
+    let db_path = state.db_path();
+    let flags = anticheat::analyse(&pool, &sidecar, db_path.to_string_lossy().as_ref(), id).await?;
     repo::upsert_anticheat_flags(&pool, id, &flags)?;
     Ok(flags)
 }
@@ -34,7 +39,13 @@ pub async fn compute_anticheat(
     id: u64,
 ) -> Result<Vec<crate::core::models::AnticheatFlag>, AppError> {
     let pool = state.db().await?;
-    let flags = anticheat::analyse(&pool, id)?;
+    let sidecar = state
+        .sidecar()
+        .await
+        .ok_or_else(|| AppError::Other("Sidecar not initialized".into()))?;
+    let db_path = state.db_path();
+    let flags = anticheat::analyse(&pool, &sidecar, db_path.to_string_lossy().as_ref(), id).await?;
     repo::upsert_anticheat_flags(&pool, id, &flags)?;
     Ok(flags)
 }
+

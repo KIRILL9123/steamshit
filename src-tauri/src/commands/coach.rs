@@ -21,7 +21,9 @@ pub async fn get_coach_tips(
     }
 
     // Generate fresh tips
-    coach::generate_and_store(&pool, id)?;
+    let sidecar = state.sidecar().await.ok_or_else(|| AppError::Other("Sidecar not initialized".into()))?;
+    let db_path = state.db_path();
+    coach::generate_and_store(&pool, &sidecar, db_path.to_string_lossy().as_ref(), id).await?;
     repo::list_coach_tips(&pool, id, player.as_deref())
 }
 
@@ -32,6 +34,11 @@ pub async fn regenerate_coach_tips(
     id: u64,
 ) -> Result<Vec<crate::core::models::CoachTip>, AppError> {
     let pool = state.db().await?;
-    coach::generate_and_store(&pool, id)?;
+    let sidecar = state
+        .sidecar()
+        .await
+        .ok_or_else(|| AppError::Other("Sidecar not initialized".into()))?;
+    let db_path = state.db_path();
+    coach::generate_and_store(&pool, &sidecar, db_path.to_string_lossy().as_ref(), id).await?;
     repo::list_coach_tips(&pool, id, None)
 }

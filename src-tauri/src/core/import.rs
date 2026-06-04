@@ -26,7 +26,7 @@ use crate::core::import_helpers::{
     bulk_insert_infernos, bulk_insert_kills, bulk_insert_rounds, bulk_insert_shots,
     bulk_insert_smokes, bulk_insert_ticks, insert_match_in_tx, insert_players_in_tx,
 };
-use crate::core::models::Match;
+use crate::core::models::{Match, PlayerMatchStats};
 use crate::core::parser::DemoParser;
 use crate::core::repo::{self, InsertMatch, PlayerRow};
 use crate::error::{AppError, AppResult};
@@ -174,9 +174,14 @@ async fn write_to_db(
 
         let match_id = insert_match_in_tx(&tx, m)?;
         insert_players_in_tx(&tx, match_id, &players_rows)?;
+
+        // Rounds MUST be inserted before `build_round_id_map` so the lookup
+        // by `round_num` returns valid ids; kills/damages/grenades/etc. all
+        // reference a `round_id` derived from that map and silently skip
+        // rows whose `round_num` is missing.
+        bulk_insert_rounds(&tx, &parsed.rounds, match_id)?;
         let round_ids = build_round_id_map(&tx, match_id)?;
 
-        bulk_insert_rounds(&tx, &parsed.rounds, match_id)?;
         bulk_insert_kills(&tx, &parsed.kills, match_id, &round_ids)?;
         bulk_insert_damages(&tx, &parsed.damages, match_id, &round_ids)?;
         bulk_insert_grenades(&tx, &parsed.grenades, match_id, &round_ids)?;
@@ -221,18 +226,21 @@ async fn compute_and_store_stats(pool: &DbPool, match_id: u64) -> AppResult<()> 
         let kills: Vec<KillRow> = {
             let mut stmt = conn
                 .prepare(
-                    "SELECT attacker, victim, weapon, headshot, round_id
+                    "SELECT tick, attacker, victim, weapon, headshot, round_id, assister, blind_kill
                  FROM kills WHERE match_id = ?1",
                 )
                 .map_err(map_sqlite)?;
             let rows = stmt
                 .query_map([match_id as i64], |r| {
                     Ok(KillRow {
-                        attacker: r.get(0)?,
-                        victim: r.get(1)?,
-                        weapon: r.get(2)?,
-                        headshot: r.get::<_, i64>(3)? != 0,
-                        round_id: r.get(4)?,
+                        tick: r.get::<_, Option<i64>>(0)?.unwrap_or(0),
+                        attacker: r.get(1)?,
+                        victim: r.get(2)?,
+                        weapon: r.get(3)?,
+                        headshot: r.get::<_, i64>(4)? != 0,
+                        round_id: r.get(5)?,
+                        assister: r.get(6)?,
+                        blind_kill: r.get::<_, i64>(7)? != 0,
                     })
                 })
                 .map_err(map_sqlite)?;
@@ -307,15 +315,7 @@ async fn compute_and_store_stats(pool: &DbPool, match_id: u64) -> AppResult<()> 
         }
 
         for k in &kills {
-            if let Some(a) = aggregates.get_mut(&k.attacker) {
-                a.kills += 1;
-                if k.headshot {
-                    a.head_shots += 1;
-                }
-            }
-            if let Some(d) = aggregates.get_mut(&k.victim) {
-                d.deaths += 1;
-            }
+            apply_kill_to_aggregates(k, &mut aggregates);
         }
         for d in &damages {
             if let Some(a) = aggregates.get_mut(&d.attacker) {
@@ -419,11 +419,14 @@ async fn compute_and_store_stats(pool: &DbPool, match_id: u64) -> AppResult<()> 
 
 #[derive(Debug)]
 pub struct KillRow {
+    pub tick: i64,
     pub attacker: String,
     pub victim: String,
     pub weapon: String,
     pub headshot: bool,
     pub round_id: i64,
+    pub assister: Option<String>,
+    pub blind_kill: bool,
 }
 
 #[derive(Debug)]
@@ -445,4 +448,147 @@ fn map_sqlite(e: rusqlite::Error) -> AppError {
 
 fn map_pool_err(e: r2d2::Error) -> AppError {
     AppError::Other(format!("db pool: {e}"))
+}
+
+// ---------------------------------------------------------------------------
+// Pure helpers (testable without DB)
+// ---------------------------------------------------------------------------
+
+/// Apply a single kill to the per-player aggregates map. Safe to call
+/// against kill rows whose `attacker` / `victim` / `assister` may or may
+/// not be present in the roster — missing keys are silently ignored.
+fn apply_kill_to_aggregates(
+    k: &KillRow,
+    aggregates: &mut std::collections::BTreeMap<String, PlayerMatchStats>,
+) {
+    if let Some(a) = aggregates.get_mut(&k.attacker) {
+        a.kills += 1;
+        if k.headshot {
+            a.head_shots += 1;
+        }
+        if k.blind_kill {
+            a.flash_assists += 1;
+        }
+    }
+    if let Some(d) = aggregates.get_mut(&k.victim) {
+        d.deaths += 1;
+    }
+    if let Some(assist_name) = &k.assister {
+        if let Some(a) = aggregates.get_mut(assist_name) {
+            a.assists += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_aggregates(players: &[&str]) -> std::collections::BTreeMap<String, PlayerMatchStats> {
+        players
+            .iter()
+            .map(|p| {
+                (
+                    p.to_string(),
+                    PlayerMatchStats {
+                        match_id: 1,
+                        player: (*p).to_string(),
+                        team: None,
+                        kills: 0,
+                        deaths: 0,
+                        assists: 0,
+                        damage: 0,
+                        adr: 0.0,
+                        kast: 0.0,
+                        rating: 0.0,
+                        hs_pct: 0.0,
+                        head_shots: 0,
+                        multi_kills_2k: 0,
+                        multi_kills_3k: 0,
+                        multi_kills_4k: 0,
+                        multi_kills_5k: 0,
+                        clutches_won: 0,
+                        clutches_total: 0,
+                        entry_kills: 0,
+                        entry_deaths: 0,
+                        utility_damage: 0,
+                        utility_enemies_flashed: 0,
+                        flash_assists: 0,
+                        first_bloods: 0,
+                        mvp_count: 0,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn k(attacker: &str, victim: &str, headshot: bool, blind: bool, assist: Option<&str>) -> KillRow {
+        KillRow {
+            tick: 0,
+            attacker: attacker.into(),
+            victim: victim.into(),
+            weapon: "ak47".into(),
+            headshot,
+            round_id: 1,
+            assister: assist.map(String::from),
+            blind_kill: blind,
+        }
+    }
+
+    #[test]
+    fn kill_increments_attacker_kills_and_victim_deaths() {
+        let mut agg = make_aggregates(&["alice", "bob"]);
+        apply_kill_to_aggregates(&k("alice", "bob", false, false, None), &mut agg);
+        assert_eq!(agg["alice"].kills, 1);
+        assert_eq!(agg["alice"].head_shots, 0);
+        assert_eq!(agg["alice"].flash_assists, 0);
+        assert_eq!(agg["bob"].deaths, 1);
+        assert_eq!(agg["bob"].assists, 0);
+    }
+
+    #[test]
+    fn headshot_kill_increments_head_shots() {
+        let mut agg = make_aggregates(&["alice", "bob"]);
+        apply_kill_to_aggregates(&k("alice", "bob", true, false, None), &mut agg);
+        assert_eq!(agg["alice"].kills, 1);
+        assert_eq!(agg["alice"].head_shots, 1);
+    }
+
+    #[test]
+    fn blind_kill_increments_flash_assists() {
+        let mut agg = make_aggregates(&["alice", "bob"]);
+        apply_kill_to_aggregates(&k("alice", "bob", false, true, None), &mut agg);
+        assert_eq!(agg["alice"].kills, 1);
+        assert_eq!(agg["alice"].flash_assists, 1);
+    }
+
+    #[test]
+    fn assist_increments_assister() {
+        let mut agg = make_aggregates(&["alice", "bob", "carol"]);
+        apply_kill_to_aggregates(&k("alice", "bob", false, false, Some("carol")), &mut agg);
+        assert_eq!(agg["alice"].kills, 1);
+        assert_eq!(agg["bob"].deaths, 1);
+        assert_eq!(agg["carol"].assists, 1);
+    }
+
+    #[test]
+    fn missing_player_in_kill_is_ignored() {
+        let mut agg = make_aggregates(&["alice"]);
+        // bob is the victim but not in the roster
+        apply_kill_to_aggregates(&k("alice", "bob", false, false, Some("eve")), &mut agg);
+        assert_eq!(agg["alice"].kills, 1);
+        // eve is not in roster, so no assist is added
+        // alice and the only key exists; nothing crashes
+    }
+
+    #[test]
+    fn multiple_kills_aggregate() {
+        let mut agg = make_aggregates(&["alice", "bob", "carol"]);
+        for _ in 0..3 {
+            apply_kill_to_aggregates(&k("alice", "bob", false, false, Some("carol")), &mut agg);
+        }
+        assert_eq!(agg["alice"].kills, 3);
+        assert_eq!(agg["bob"].deaths, 3);
+        assert_eq!(agg["carol"].assists, 3);
+    }
 }

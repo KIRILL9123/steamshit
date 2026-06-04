@@ -64,6 +64,10 @@ const progressLabel = computed(() => {
 
 onMounted(async () => {
   await store.refresh();
+  if (store.sorted.length === 0) {
+    router.replace({ name: 'onboarding' });
+    return;
+  }
   unlisten = await api.onImportProgress((p) => store.onProgress(p));
 });
 

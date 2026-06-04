@@ -34,6 +34,8 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             // Week 1 smoke tests
@@ -45,6 +47,7 @@ fn main() {
             cs2_analyzer_lib::commands::matches::get_match,
             cs2_analyzer_lib::commands::matches::delete_match,
             cs2_analyzer_lib::commands::matches::get_round_progression,
+            cs2_analyzer_lib::commands::matches::get_utility_throws,
             // Anticheat
             cs2_analyzer_lib::commands::anticheat::get_anticheat_flags,
             cs2_analyzer_lib::commands::anticheat::compute_anticheat,
@@ -92,7 +95,9 @@ fn main() {
                         let exe_dir = std::env::current_exe()
                             .ok()
                             .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-                        exe_dir.map(|d| d.join("binaries").join("cs2_sidecar.exe"))
+                        // Tauri places the bundled sidecar alongside the main executable 
+                        // and names it python_sidecar.exe (stripping the target triple).
+                        exe_dir.map(|d| d.join("python_sidecar.exe"))
                     }
                 })
                 .unwrap_or_else(|| std::path::PathBuf::from("python_sidecar"));

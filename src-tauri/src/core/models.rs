@@ -342,6 +342,17 @@ pub struct CoachTip {
     pub evidence_json: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UtilityStats {
+    pub player: String,
+    pub he: u32,
+    pub flash: u32,
+    pub smoke: u32,
+    pub molly: u32,
+    pub decoy: u32,
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

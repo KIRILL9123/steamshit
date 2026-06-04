@@ -9,7 +9,7 @@ use crate::error::AppResult;
 use crate::core::repo;
 
 /// Run all heuristics for the given match. Returns a list of flags (may be empty).
-pub fn analyse(pool: &DbPool, match_id: u64) -> AppResult<Vec<AnticheatFlag>> {
+pub async fn analyse(pool: &DbPool, sidecar: &crate::sidecar::SidecarHandle, db_path: &str, match_id: u64) -> AppResult<Vec<AnticheatFlag>> {
     let stats = repo::list_match_stats(pool, match_id)?;
     if stats.is_empty() {
         return Ok(vec![]);
@@ -132,6 +132,39 @@ pub fn analyse(pool: &DbPool, match_id: u64) -> AppResult<Vec<AnticheatFlag>> {
         }
     }
 
+    // Call Python sidecar for advanced heuristics
+    let mut adv_flags = sidecar_analysis(sidecar, db_path, match_id, &mut flag_id).await.unwrap_or_default();
+    flags.append(&mut adv_flags);
+
+    Ok(flags)
+}
+
+async fn sidecar_analysis(
+    sidecar: &crate::sidecar::SidecarHandle,
+    db_path: &str,
+    match_id: u64,
+    flag_id: &mut u64,
+) -> AppResult<Vec<AnticheatFlag>> {
+    let mut flags = Vec::new();
+    
+    let params = serde_json::json!({
+        "db_path": db_path,
+        "match_id": match_id
+    });
+    
+    if let Ok(res) = sidecar.call(crate::sidecar::methods::ANTICHEAT_RUN_HEURISTIC, params).await {
+        if let Some(arr) = res.as_array() {
+            for item in arr {
+                if let Ok(mut flag) = serde_json::from_value::<AnticheatFlag>(item.clone()) {
+                    flag.id = *flag_id;
+                    *flag_id += 1;
+                    flag.match_id = match_id;
+                    flags.push(flag);
+                }
+            }
+        }
+    }
+    
     Ok(flags)
 }
 

@@ -10,7 +10,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
-import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip } from '@/types/domain';
+import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats } from '@/types/domain';
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   try {
@@ -86,6 +86,9 @@ export const api = {
   },
   getRoundProgression(id: number): Promise<RoundProgression[]> {
     return call<RoundProgression[]>('get_round_progression', { id });
+  },
+  getUtilityThrows(id: number): Promise<UtilityStats[]> {
+    return call<UtilityStats[]>('get_utility_throws', { id });
   },
 
   // --- anticheat ---

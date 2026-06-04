@@ -195,6 +195,15 @@ export interface CoachTip {
   evidenceJson: string | null;
 }
 
+export interface UtilityStats {
+  player: string;
+  he: number;
+  flash: number;
+  smoke: number;
+  molly: number;
+  decoy: number;
+}
+
 /** IPC error envelope. Mirrors `AppError::serialize` in Rust. */
 export interface AppErrorWire {
   kind: string;

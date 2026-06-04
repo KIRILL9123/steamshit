@@ -2,7 +2,7 @@
 
 > Локальный desktop-анализатор CS2-демок. Tauri 2 + Vue 3 + Rust + Python sidecar.
 
-![Status](https://img.shields.io/badge/status-MVP%20week%201-yellow)
+![Status](https://img.shields.io/badge/status-Release%20v0.1.0-brightgreen)
 ![Stack](https://img.shields.io/badge/stack-Tauri%202%20%7C%20Vue%203%20%7C%20Rust%20%7C%20Python-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -84,14 +84,18 @@ pnpm format        # все форматтеры
 pnpm typecheck     # vue + ts
 ```
 
-## Сборка (production)
+## Установка (Release)
 
+Готовый Windows-инсталлятор находится по адресу:
+`src-tauri/target/release/bundle/nsis/CS2 Analyzer_0.1.0_x64-setup.exe`
+
+Если вы хотите собрать его самостоятельно с нуля:
 ```bash
-# Frontend + Tauri (Windows .exe / macOS .dmg / Linux .AppImage)
-pnpm build
+# 1. Собрать Python sidecar (нужен Python 3.11+ и установленный модуль uv/pip)
+powershell -File tools/build_python.ps1
 
-# Собрать Python sidecar (опционально, для продвинутых фич)
-pnpm tools:build-python
+# 2. Собрать Frontend + Tauri (Windows .exe)
+pnpm build
 ```
 
 ## Лицензия

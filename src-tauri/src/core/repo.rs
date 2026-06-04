@@ -451,6 +451,53 @@ pub fn list_grenades_for_round(pool: &DbPool, round_id: u64) -> AppResult<Vec<Gr
     Ok(out)
 }
 
+pub fn get_utility_throws(pool: &DbPool, match_id: u64) -> AppResult<Vec<UtilityStats>> {
+    let conn = pool.get().map_err(map_pool_err)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT thrower, nade_type, COUNT(*) as count 
+             FROM grenades 
+             WHERE match_id = ?1 AND thrower IS NOT NULL 
+             GROUP BY thrower, nade_type",
+        )
+        .map_err(map_sqlite_err)?;
+
+    let rows = stmt
+        .query_map([match_id as i64], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, u32>(2)?,
+            ))
+        })
+        .map_err(map_sqlite_err)?;
+
+    let mut stats_map: std::collections::HashMap<String, UtilityStats> = std::collections::HashMap::new();
+
+    for r in rows {
+        let (thrower, nade_type, count) = r.map_err(map_sqlite_err)?;
+        let stats = stats_map.entry(thrower.clone()).or_insert(UtilityStats {
+            player: thrower,
+            he: 0,
+            flash: 0,
+            smoke: 0,
+            molly: 0,
+            decoy: 0,
+        });
+
+        match nade_type.as_str() {
+            "hegrenade" => stats.he += count,
+            "flashbang" => stats.flash += count,
+            "smokegrenade" => stats.smoke += count,
+            "molotov" | "incgrenade" => stats.molly += count,
+            "decoy" => stats.decoy += count,
+            _ => {}
+        }
+    }
+
+    Ok(stats_map.into_values().collect())
+}
+
 // ---------------------------------------------------------------------------
 // player_match_stats helpers for anticheat/coach
 // ---------------------------------------------------------------------------
@@ -562,6 +609,7 @@ pub fn list_anticheat_flags(pool: &DbPool, match_id: u64) -> AppResult<Vec<crate
     Ok(out)
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 pub struct CoachTipInsert {
     pub player: Option<String>,
     pub category: String,

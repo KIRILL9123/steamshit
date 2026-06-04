@@ -4,8 +4,67 @@ import PageContainer from '@/components/layout/PageContainer.vue';
 import BaseCard from '@/components/ui/BaseCard.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import Icon from '@/components/ui/Icon.vue';
+import { api } from '@/api';
+import { useMatchesStore } from '@/stores/matches';
+import { useToast } from '@/composables/useToast';
+import { storeToRefs } from 'pinia';
+import ProgressBar from '@/components/ui/ProgressBar.vue';
+import { onMounted, onBeforeUnmount, computed } from 'vue';
 
 const router = useRouter();
+const store = useMatchesStore();
+const { importing, importProgress } = storeToRefs(store);
+const toast = useToast();
+
+let unlisten: (() => void) | null = null;
+
+onMounted(async () => {
+  unlisten = await api.onImportProgress((p) => store.onProgress(p));
+});
+onBeforeUnmount(() => {
+  unlisten?.();
+});
+
+async function pickAndImport() {
+  try {
+    const path = await api.pickDemoFile();
+    if (!path) return;
+    const m = await store.importFromPath(path);
+    toast.success(`Импортировано: ${m.mapName}`);
+    router.push({ name: 'overview', params: { id: m.id } });
+  } catch (e) {
+    toast.danger('Ошибка импорта', String(e));
+  }
+}
+
+const progressFraction = computed(() => {
+  const p = importProgress.value;
+  if (!p) return 0;
+  if (p.stage === 'done') return 1;
+  if (p.fraction != null) return p.fraction;
+  switch (p.stage) {
+    case 'start':     return 0.02;
+    case 'hashing':   return 0.05;
+    case 'parsing':   return 0.4;
+    case 'writing':   return 0.85;
+    case 'stats':     return 0.95;
+    default:          return 0;
+  }
+});
+
+const progressLabel = computed(() => {
+  const p = importProgress.value;
+  if (!p) return '';
+  switch (p.stage) {
+    case 'start':     return 'Подготовка…';
+    case 'hashing':   return 'Хеширование…';
+    case 'parsing':   return 'Парсинг (Python)…';
+    case 'writing':   return 'Запись в базу…';
+    case 'stats':     return 'Аналитика…';
+    case 'done':      return 'Готово';
+    default:          return '';
+  }
+});
 </script>
 
 <template>
@@ -30,9 +89,12 @@ const router = useRouter();
         </div>
       </BaseCard>
     </div>
-    <div class="mt-6 flex justify-center">
-      <BaseButton variant="primary" icon-left="layers" @click="router.push('/library')">
-        Открыть библиотеку
+    <div v-if="importProgress" class="mt-6 w-full max-w-xl mx-auto surface p-3">
+      <ProgressBar :value="progressFraction" :label="progressLabel" show-percent />
+    </div>
+    <div v-else class="mt-6 flex justify-center gap-4">
+      <BaseButton variant="primary" icon-left="upload" :disabled="importing" @click="pickAndImport">
+        Импортировать демо
       </BaseButton>
     </div>
   </PageContainer>

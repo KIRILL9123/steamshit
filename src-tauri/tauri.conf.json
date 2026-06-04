@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "CS2 Analyzer",
-  "version": "0.1.0",
-  "identifier": "com.cs2analyzer.app",
+  "version": "0.1.1",
+  "identifier": "com.cs2analyzer.desktop",
   "build": {
     "beforeDevCommand": "npx pnpm --dir frontend dev",
     "devUrl": "http://localhost:1420",
@@ -32,7 +32,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -63,6 +63,12 @@
   "plugins": {
     "shell": {
       "open": true
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRDODc4MjdGOTM2ODNCRQpSV1MrZ3piNUozaklCTmw0c1p6cFdTbVl4ampEdmhkcStseVg5QUZIVTcrQUlXbjV0cTl2ZmtnSQo=",
+      "endpoints": [
+        "https://github.com/KIRILL9123/steamshit/releases/latest/download/latest.json"
+      ]
     }
   }
 }

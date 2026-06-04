@@ -5,9 +5,36 @@ use crate::core::repo::{self, CoachTipInsert};
 use crate::error::AppResult;
 
 /// Generate tips for all players in the match and write them to the DB.
-pub fn generate_and_store(pool: &DbPool, match_id: u64) -> AppResult<()> {
-    let tips = generate(pool, match_id)?;
+pub async fn generate_and_store(pool: &DbPool, sidecar: &crate::sidecar::SidecarHandle, db_path: &str, match_id: u64) -> AppResult<()> {
+    let mut tips = generate(pool, match_id)?;
+    let mut adv_tips = sidecar_analysis(sidecar, db_path, match_id).await.unwrap_or_default();
+    tips.append(&mut adv_tips);
     repo::upsert_coach_tips(pool, match_id, &tips)
+}
+
+async fn sidecar_analysis(
+    sidecar: &crate::sidecar::SidecarHandle,
+    db_path: &str,
+    match_id: u64,
+) -> AppResult<Vec<CoachTipInsert>> {
+    let mut tips = Vec::new();
+    
+    let params = serde_json::json!({
+        "db_path": db_path,
+        "match_id": match_id
+    });
+    
+    if let Ok(res) = sidecar.call(crate::sidecar::methods::COACH_GENERATE_TIPS, params).await {
+        if let Some(arr) = res.as_array() {
+            for item in arr {
+                if let Ok(tip) = serde_json::from_value::<CoachTipInsert>(item.clone()) {
+                    tips.push(tip);
+                }
+            }
+        }
+    }
+    
+    Ok(tips)
 }
 
 /// Generate coaching tips for all players in the match.

@@ -1,6 +1,6 @@
 {
   "name": "cs2-analyzer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "CS2 Demo Analyzer — Tauri 2 + Vue 3 + Rust + Python sidecar",
   "type": "module",
@@ -38,5 +38,9 @@
     "rust": ">=1.75",
     "python": ">=3.11"
   },
-  "packageManager": "pnpm@9.0.0"
+  "packageManager": "pnpm@9.0.0",
+  "dependencies": {
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1"
+  }
 }

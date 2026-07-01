@@ -1,46 +1,33 @@
 {
   "name": "cs2-analyzer",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
-  "description": "CS2 Demo Analyzer — Tauri 2 + Vue 3 + Rust + Python sidecar",
+  "description": "CS2 Demo Analyzer — FastAPI + Vue 3 + SQLite + demoparser2",
   "type": "module",
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "cd frontend && pnpm dev",
+    "dev:backend": "uvicorn backend.main:app --reload",
     "dev:frontend": "cd frontend && pnpm dev",
-    "dev:tauri": "tauri dev",
-    "build": "tauri build",
     "build:frontend": "cd frontend && pnpm build",
-    "build:debug": "tauri build --debug",
-    "lint": "pnpm lint:js && pnpm lint:rs && pnpm lint:py",
+    "lint": "pnpm lint:js && pnpm lint:py",
     "lint:js": "cd frontend && pnpm lint",
-    "lint:rs": "cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo fmt --check",
-    "lint:py": "cd python_sidecar && ruff check . && ruff format --check .",
-    "format": "pnpm format:js && pnpm format:rs && pnpm format:py",
+    "lint:py": "cd backend && ruff check . && ruff format --check .",
+    "format": "pnpm format:js && pnpm format:py",
     "format:js": "cd frontend && pnpm format",
-    "format:rs": "cd src-tauri && cargo fmt",
-    "format:py": "cd python_sidecar && ruff format .",
-    "test": "pnpm test:rs && pnpm test:py && pnpm test:js",
-    "test:rs": "cd src-tauri && cargo test",
-    "test:py": "cd python_sidecar && pytest",
-    "test:js": "cd frontend && pnpm test:unit",
+    "format:py": "cd backend && ruff format .",
+    "test": "pnpm test:py && pnpm test:js",
+    "test:py": "cd backend && pytest",
+    "test:js": "cd frontend && pnpm test",
     "typecheck": "cd frontend && pnpm typecheck",
-    "tauri": "tauri",
-    "tools:extract-maps": "python tools/extract_maps.py",
-    "tools:build-python": "bash tools/build_python.sh"
+    "tools:extract-maps": "python tools/extract_maps.py"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
     "typescript": "^5.4.0"
   },
   "engines": {
     "node": ">=18.18",
     "pnpm": ">=8.0",
-    "rust": ">=1.75",
     "python": ">=3.11"
   },
-  "packageManager": "pnpm@9.0.0",
-  "dependencies": {
-    "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-updater": "^2.10.1"
-  }
+  "packageManager": "pnpm@9.0.0"
 }

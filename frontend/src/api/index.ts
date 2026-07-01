@@ -1,24 +1,14 @@
-/**
- * Tauri command bridge.
- *
- * Every Tauri command (registered in `src-tauri/src/commands/*`) gets a
- * typed wrapper here so the rest of the app never imports from
- * `@tauri-apps/api` directly. This keeps the call sites mockable from
- * Vitest and centralises error handling.
- */
-
-import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { open as openFileDialog } from '@tauri-apps/plugin-dialog';
 import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats } from '@/types/domain';
 
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function call<T>(url: string, init?: RequestInit): Promise<T> {
   try {
-    return await invoke<T>(cmd, args);
-  } catch (e: any) {
-    if (e && typeof e === 'object' && 'message' in e) {
-      throw new Error(e.message);
+    const res = await fetch(url, init);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP error! Status: ${res.status}`);
     }
+    return await res.json();
+  } catch (e: any) {
     throw e;
   }
 }
@@ -65,81 +55,85 @@ export interface RoundGrenadeEvent {
 export const api = {
   // --- system ---
   ping(): Promise<string> {
-    return call<string>('ping');
+    return call<string>('/api/ping');
   },
   appInfo(): Promise<AppInfo> {
-    return call<AppInfo>('app_info');
+    return call<AppInfo>('/api/app_info');
   },
 
-  // --- matches (week 4) ---
+  // --- matches ---
   async importDemo(path: string): Promise<Match> {
-    return call<Match>('import_demo', { path });
+    return call<Match>('/api/matches/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
+    });
   },
   listMatches(): Promise<Match[]> {
-    return call<Match[]>('list_matches');
+    return call<Match[]>('/api/matches');
   },
   getMatch(id: number): Promise<MatchDetail> {
-    return call<MatchDetail>('get_match', { id });
+    return call<MatchDetail>(`/api/matches/${id}`);
   },
   deleteMatch(id: number): Promise<void> {
-    return call<void>('delete_match', { id });
+    return call<void>(`/api/matches/${id}`, {
+      method: 'DELETE',
+    });
   },
   getRoundProgression(id: number): Promise<RoundProgression[]> {
-    return call<RoundProgression[]>('get_round_progression', { id });
+    return call<RoundProgression[]>(`/api/matches/${id}/round_progression`);
   },
   getUtilityThrows(id: number): Promise<UtilityStats[]> {
-    return call<UtilityStats[]>('get_utility_throws', { id });
+    return call<UtilityStats[]>(`/api/matches/${id}/utility_throws`);
   },
 
   // --- anticheat ---
   getAnticheatFlags(matchId: number): Promise<AnticheatFlag[]> {
-    return call<AnticheatFlag[]>('get_anticheat_flags', { id: matchId });
+    return call<AnticheatFlag[]>(`/api/matches/${matchId}/anticheat_flags`);
   },
   computeAnticheat(matchId: number): Promise<AnticheatFlag[]> {
-    return call<AnticheatFlag[]>('compute_anticheat', { id: matchId });
+    return call<AnticheatFlag[]>(`/api/matches/${matchId}/compute_anticheat`, {
+      method: 'POST',
+    });
   },
 
   // --- coach ---
   getCoachTips(matchId: number, player?: string): Promise<CoachTip[]> {
-    return call<CoachTip[]>('get_coach_tips', { id: matchId, player: player ?? null });
+    const url = `/api/matches/${matchId}/coach_tips` + (player ? `?player=${encodeURIComponent(player)}` : '');
+    return call<CoachTip[]>(url);
   },
   regenerateCoachTips(matchId: number): Promise<CoachTip[]> {
-    return call<CoachTip[]>('regenerate_coach_tips', { id: matchId });
+    return call<CoachTip[]>(`/api/matches/${matchId}/regenerate_coach_tips`, {
+      method: 'POST',
+    });
   },
 
   // --- heatmaps ---
   getHeatmapData(matchId: number, player?: string): Promise<HeatmapPoint[]> {
-    return call<HeatmapPoint[]>('get_heatmap_data', { id: matchId, player: player ?? null });
+    const url = `/api/matches/${matchId}/heatmap_data` + (player ? `?player=${encodeURIComponent(player)}` : '');
+    return call<HeatmapPoint[]>(url);
   },
 
   // --- replay ---
   listRounds(matchId: number): Promise<Round[]> {
-    return call<Round[]>('list_rounds', { id: matchId });
+    return call<Round[]>(`/api/matches/${matchId}/rounds`);
   },
   getRoundKills(roundId: number): Promise<RoundKillEvent[]> {
-    return call<RoundKillEvent[]>('get_round_kills', { roundId });
+    return call<RoundKillEvent[]>(`/api/rounds/${roundId}/kills`);
   },
   getRoundGrenades(roundId: number): Promise<RoundGrenadeEvent[]> {
-    return call<RoundGrenadeEvent[]>('get_round_grenades', { roundId });
+    return call<RoundGrenadeEvent[]>(`/api/rounds/${roundId}/grenades`);
   },
 
   // --- import UI helpers ---
   async pickDemoFile(): Promise<string | null> {
-    const picked = await openFileDialog({
-      multiple: false,
-      directory: false,
-      filters: [
-        { name: 'CS2 Demo', extensions: ['dem', 'zst'] },
-        { name: 'Все файлы', extensions: ['*'] },
-      ],
-    });
-    if (Array.isArray(picked)) return picked[0] ?? null;
-    return picked ?? null;
+    const picked = window.prompt('Введите абсолютный путь к файлу демо (.dem или .dem.zst):');
+    return picked ? picked.trim() : null;
   },
 
-  /** Subscribe to `import:progress` events. Returns an unsubscribe fn. */
-  onImportProgress(handler: (p: ImportProgress) => void): Promise<UnlistenFn> {
-    return listen<ImportProgress>('import:progress', (e) => handler(e.payload));
+  /** Subscribe to progress events (stubbed, since we use synchronous processing). */
+  onImportProgress(_handler: (p: ImportProgress) => void): Promise<() => void> {
+    return Promise.resolve(() => {});
   },
 };
 

@@ -687,6 +687,25 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
     return match_id
 
 # ---------------------------------------------------------------------------
+# App Settings Helpers
+# ---------------------------------------------------------------------------
+
+async def get_setting(conn: aiosqlite.Connection, key: str) -> Optional[str]:
+    """Retrieve setting value by key."""
+    async with conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)) as cursor:
+        row = await cursor.fetchone()
+        return row[0] if row else None
+
+async def set_setting(conn: aiosqlite.Connection, key: str, value: Optional[str]):
+    """Insert or update setting value."""
+    updated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    await conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
+        (key, value, updated_at)
+    )
+    await conn.commit()
+
+# ---------------------------------------------------------------------------
 # Polars Helper DB Reader
 # ---------------------------------------------------------------------------
 

@@ -125,6 +125,19 @@ export const api = {
     return call<RoundGrenadeEvent[]>(`/api/rounds/${roundId}/grenades`);
   },
 
+  // --- settings ---
+  async getWatchFolder(): Promise<string | null> {
+    const res = await call<{ watch_folder: string | null }>('/api/settings/watch_folder');
+    return res.watch_folder;
+  },
+  async setWatchFolder(path: string | null): Promise<void> {
+    await call<void>('/api/settings/watch_folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ watch_folder: path }),
+    });
+  },
+
   // --- import UI helpers ---
   async pickDemoFile(): Promise<string | null> {
     const picked = window.prompt('Введите абсолютный путь к файлу демо (.dem или .dem.zst):');

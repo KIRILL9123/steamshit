@@ -5,55 +5,39 @@ import BaseCard from '@/components/ui/BaseCard.vue';
 import { api } from '@/api';
 import type { AppInfo } from '@/types/domain';
 
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
-
 const info = ref<AppInfo | null>(null);
 const ping = ref<string>('');
 
-// Updater state
-const isChecking = ref(false);
-const updateStatus = ref('');
-const updateProgress = ref<{ total: number; downloaded: number } | null>(null);
+// Watch folder state
+const watchFolder = ref('');
+const isSaving = ref(false);
+const saveError = ref('');
+const saveSuccess = ref('');
 
-async function checkForUpdates() {
-  isChecking.value = true;
-  updateStatus.value = 'Поиск обновлений...';
-  updateProgress.value = null;
-
+async function loadWatchFolder() {
   try {
-    const update = await check();
-    if (update) {
-      updateStatus.value = `Найдено обновление: ${update.version}`;
-      
-      let downloaded = 0;
-      let contentLength = 0;
-      
-      await update.downloadAndInstall((event) => {
-        switch (event.event) {
-          case 'Started':
-            contentLength = event.data.contentLength || 0;
-            updateStatus.value = `Скачивание обновления...`;
-            break;
-          case 'Progress':
-            downloaded += event.data.chunkLength;
-            updateProgress.value = { total: contentLength, downloaded };
-            break;
-          case 'Finished':
-            updateStatus.value = 'Установка завершена. Перезапуск...';
-            break;
-        }
-      });
+    const path = await api.getWatchFolder();
+    watchFolder.value = path || '';
+  } catch (e) {
+    console.error('Ошибка загрузки папки авто-импорта:', e);
+  }
+}
 
-      await relaunch();
-    } else {
-      updateStatus.value = 'У вас установлена последняя версия.';
-    }
-  } catch (error) {
-    updateStatus.value = `Ошибка: ${error}`;
-    console.error(error);
+async function saveWatchFolder() {
+  isSaving.value = true;
+  saveError.value = '';
+  saveSuccess.value = '';
+  
+  try {
+    const path = watchFolder.value.trim() || null;
+    await api.setWatchFolder(path);
+    saveSuccess.value = path 
+      ? 'Папка авто-импорта успешно сохранена и отслеживается!' 
+      : 'Авто-импорт успешно выключен.';
+  } catch (e: any) {
+    saveError.value = e.message || 'Не удалось сохранить путь.';
   } finally {
-    isChecking.value = false;
+    isSaving.value = false;
   }
 }
 
@@ -61,6 +45,7 @@ onMounted(async () => {
   try {
     ping.value = await api.ping();
     info.value = await api.appInfo();
+    await loadWatchFolder();
   } catch (e) {
     console.error(e);
   }
@@ -70,7 +55,7 @@ onMounted(async () => {
 <template>
   <PageContainer title="Настройки" subtitle="О приложении и путях">
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <BaseCard title="Бэкенд" subtitle="Состояние Rust + Python">
+      <BaseCard title="Бэкенд" subtitle="Состояние FastAPI + Python">
         <dl class="space-y-2 text-sm">
           <div class="flex justify-between"><dt class="text-fg-muted">Имя</dt><dd>{{ info?.name }}</dd></div>
           <div class="flex justify-between"><dt class="text-fg-muted">Версия</dt><dd class="font-mono">{{ info?.version }}</dd></div>
@@ -78,17 +63,17 @@ onMounted(async () => {
           <div class="flex justify-between"><dt class="text-fg-muted">Sidecar</dt>
             <dd>
               <span
-                class="inline-flex items-center gap-1.5 rounded-sm bg-bg-elev-2 px-2 py-0.5 text-xs"
-                :class="info?.sidecarAlive ? 'text-success' : 'text-fg-dim'"
+                class="inline-flex items-center gap-1.5 rounded-sm bg-bg-elev-2 px-2 py-0.5 text-xs text-success"
               >
-                <span class="h-1.5 w-1.5 rounded-full" :class="info?.sidecarAlive ? 'bg-success' : 'bg-fg-dim'" />
-                {{ info?.sidecarAlive ? 'online' : 'offline' }}
+                <span class="h-1.5 w-1.5 rounded-full bg-success" />
+                online
               </span>
             </dd>
           </div>
           <div class="flex justify-between"><dt class="text-fg-muted">Ping</dt><dd class="font-mono">{{ ping || '—' }}</dd></div>
         </dl>
       </BaseCard>
+      
       <BaseCard title="Пути" subtitle="Данные и база">
         <dl class="space-y-2 break-all text-sm">
           <div>
@@ -102,30 +87,30 @@ onMounted(async () => {
         </dl>
       </BaseCard>
 
-      <BaseCard title="Обновления" subtitle="Проверка новых версий" class="md:col-span-2">
-        <div class="flex flex-col items-start gap-4">
+      <BaseCard title="Авто-импорт демок" subtitle="Автоматическое отслеживание папки с демками" class="md:col-span-2">
+        <div class="flex flex-col gap-4">
           <p class="text-sm text-fg-dim">
-            Нажмите кнопку ниже, чтобы проверить наличие новых версий.
+            Fragscope может автоматически сканировать и импортировать демки (.dem / .dem.zst) из выбранной папки (например, папки загрузок или папки replays в CS2). Оставьте поле пустым, чтобы выключить авто-импорт.
           </p>
-          <button
-            class="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50"
-            :disabled="isChecking"
-            @click="checkForUpdates"
-          >
-            {{ isChecking ? 'Проверка...' : 'Проверить обновления' }}
-          </button>
-          
-          <div v-if="updateStatus" class="text-sm">
-            <p>{{ updateStatus }}</p>
-            <div v-if="updateProgress" class="mt-2 h-2 w-full overflow-hidden rounded-full bg-bg-elev-3">
-              <div 
-                class="h-full bg-primary transition-all duration-300" 
-                :style="{ width: updateProgress.total > 0 ? (updateProgress.downloaded / updateProgress.total * 100) + '%' : '100%' }"
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-medium text-fg-muted">Абсолютный путь к папке на сервере</label>
+            <div class="flex gap-2">
+              <input
+                v-model="watchFolder"
+                type="text"
+                placeholder="Например, C:\Users\Имя\Downloads или C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\replays"
+                class="h-9 flex-1 rounded border border-border bg-bg-elev-2 px-3 text-sm text-fg placeholder:text-fg-dim focus:border-accent focus:outline-none"
               />
+              <button
+                class="rounded bg-accent px-4 py-2 text-sm font-medium text-bg-base hover:bg-accent-hover disabled:opacity-50"
+                :disabled="isSaving"
+                @click="saveWatchFolder"
+              >
+                {{ isSaving ? 'Сохранение...' : 'Сохранить' }}
+              </button>
             </div>
-            <p v-if="updateProgress && updateProgress.total > 0" class="mt-1 text-xs text-fg-dim">
-              {{ (updateProgress.downloaded / 1024 / 1024).toFixed(1) }} MB / {{ (updateProgress.total / 1024 / 1024).toFixed(1) }} MB
-            </p>
+            <p v-if="saveError" class="text-sm text-danger mt-1">{{ saveError }}</p>
+            <p v-if="saveSuccess" class="text-sm text-success mt-1">{{ saveSuccess }}</p>
           </div>
         </div>
       </BaseCard>

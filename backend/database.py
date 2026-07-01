@@ -2,6 +2,7 @@ import os
 import sqlite3
 import json
 import datetime
+from typing import Optional
 from contextlib import asynccontextmanager
 import aiosqlite
 import polars as pl

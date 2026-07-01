@@ -27,7 +27,7 @@ def parse(demo_path: str):
     file_size = os.path.getsize(demo_path)
 
     async def run_parse():
-        async with await get_connection() as conn:
+        async with get_connection() as conn:
             # Check for existing match
             existing = await find_match_by_hash(conn, file_hash)
             if existing:
@@ -55,7 +55,7 @@ def parse(demo_path: str):
 def highlights(match_id: int, video: str = typer.Option(None, help="Path to video file (.mp4) to cut clips from")):
     """Show highlights (multi-kills, clutches) and optionally cut video clips using ffmpeg."""
     async def get_highlights():
-        async with await get_connection() as conn:
+        async with get_connection() as conn:
             # Fetch match header
             async with conn.execute("SELECT * FROM matches WHERE id = ?", (match_id,)) as cursor:
                 match_row = await cursor.fetchone()

@@ -2,6 +2,7 @@ import os
 import sqlite3
 import json
 import datetime
+from contextlib import asynccontextmanager
 import aiosqlite
 import polars as pl
 
@@ -225,28 +226,29 @@ CREATE INDEX IF NOT EXISTS idx_coach_category ON coach_tips(category);
 CREATE INDEX IF NOT EXISTS idx_coach_priority ON coach_tips(priority DESC);
 """
 
+@asynccontextmanager
 async def get_connection():
-    """Create and configure a DB connection."""
+    """Create and configure a DB connection as an async context manager."""
     conn = await aiosqlite.connect(DB_PATH)
-    await conn.execute("PRAGMA foreign_keys = ON")
-    await conn.execute("PRAGMA journal_mode = WAL")
-    await conn.execute("PRAGMA synchronous = NORMAL")
-    conn.row_factory = aiosqlite.Row
-    return conn
+    try:
+        await conn.execute("PRAGMA foreign_keys = ON")
+        await conn.execute("PRAGMA journal_mode = WAL")
+        await conn.execute("PRAGMA synchronous = NORMAL")
+        conn.row_factory = aiosqlite.Row
+        yield conn
+    finally:
+        await conn.close()
 
 async def init_db():
     """Initialise the database and create tables/indices if they don't exist."""
-    async with await get_connection() as conn:
+    async with get_connection() as conn:
         await conn.executescript(SCHEMA_SQL)
         await conn.commit()
 
 async def get_db():
     """FastAPI Dependency for database connection."""
-    conn = await get_connection()
-    try:
+    async with get_connection() as conn:
         yield conn
-    finally:
-        await conn.close()
 
 # ---------------------------------------------------------------------------
 # Match operations

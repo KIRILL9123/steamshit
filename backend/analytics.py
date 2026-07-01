@@ -76,7 +76,7 @@ async def run_anticheat_analysis(match_id: int):
             })
 
     # Save to database
-    async with await get_connection() as conn:
+    async with get_connection() as conn:
         await save_anticheat_flags(conn, match_id, flags)
 
     return flags
@@ -148,7 +148,7 @@ async def generate_coach_tips(match_id: int):
             })
 
     # Save to database
-    async with await get_connection() as conn:
+    async with get_connection() as conn:
         await save_coach_tips(conn, match_id, tips)
 
     return tips

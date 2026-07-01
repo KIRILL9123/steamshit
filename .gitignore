@@ -23,6 +23,7 @@ src-tauri/gen/
 
 # Local data
 data/
+fragscope.db
 *.sqlite3
 *.sqlite3-journal
 *.sqlite3-wal

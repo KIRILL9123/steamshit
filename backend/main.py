@@ -79,7 +79,7 @@ async def import_match_endpoint(req: ImportRequest):
     file_hash = get_file_hash(req.path)
     file_size = os.path.getsize(req.path)
 
-    async with await get_connection() as db:
+    async with get_connection() as db:
         # Check deduplication
         existing = await find_match_by_hash(db, file_hash)
         if existing:
@@ -130,7 +130,7 @@ async def get_anticheat_flags_endpoint(match_id: int, db: aiosqlite.Connection =
 async def compute_anticheat_endpoint(match_id: int):
     # Run analysis
     await run_anticheat_analysis(match_id)
-    async with await get_connection() as db:
+    async with get_connection() as db:
         return await get_anticheat_flags(db, match_id)
 
 @app.get("/api/matches/{match_id}/coach_tips")
@@ -145,7 +145,7 @@ async def get_coach_tips_endpoint(
 async def regenerate_coach_tips_endpoint(match_id: int):
     # Re-run coaching tips
     await generate_coach_tips(match_id)
-    async with await get_connection() as db:
+    async with get_connection() as db:
         return await get_coach_tips(db, match_id, None)
 
 @app.get("/api/matches/{match_id}/heatmap_data")

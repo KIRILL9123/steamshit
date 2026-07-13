@@ -32,6 +32,19 @@ onBeforeUnmount(() => {
 
 const header = computed(() => detail.value);
 const stats = computed<PlayerMatchStats[]>(() => detail.value?.stats ?? []);
+const clutches = computed(() => detail.value?.clutches ?? []);
+
+function playerClutchTooltip(playerName: string): string {
+  const playerClutches = clutches.value.filter((c: any) => c.player === playerName);
+  if (playerClutches.length === 0) return 'Клатчей не зафиксировано';
+  return playerClutches
+    .map((c: any) => {
+      const outcome = c.won ? 'Победа' : 'Поражение';
+      const oppSide = c.team === 'CT' ? 'T' : 'CT';
+      return `1v${c.opponentsCount} против ${oppSide} (Раунд ${c.roundNum}) — ${outcome}`;
+    })
+    .join('\n');
+}
 const roundProgression = computed(() => store.roundProgression);
 
 const finalScore = computed(() => {
@@ -218,6 +231,7 @@ function teamColor(t: string | null | undefined): string {
                   <th class="px-2 py-2 text-right">KAST</th>
                   <th class="px-2 py-2 text-right">Размен (K)</th>
                   <th class="px-2 py-2 text-right">Размен (%)</th>
+                  <th class="px-2 py-2 text-right">Клатчи</th>
                   <th class="px-2 py-2 text-right">Rating 2.0</th>
                 </tr>
               </thead>
@@ -234,6 +248,7 @@ function teamColor(t: string | null | undefined): string {
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.kast) }}</td>
                   <td class="px-2 py-2 text-right font-mono" title="Разменов совершено (убийств в ответ на смерть тиммейта)">{{ s.tradeKills }}</td>
                   <td class="px-2 py-2 text-right font-mono" :title="'Разменено ваших смертей: ' + s.tradedDeaths + ' из ' + s.deaths">{{ fmt(s.tradeRate * 100, 0) }}%</td>
+                  <td class="px-2 py-2 text-right font-mono cursor-help" :title="playerClutchTooltip(s.player)">{{ s.clutchesTotal > 0 ? `${s.clutchesWon} / ${s.clutchesTotal}` : '—' }}</td>
                   <td class="px-2 py-2 text-right">
                     <span
                       class="rounded-sm px-1.5 py-0.5 font-mono"

@@ -143,6 +143,16 @@ CREATE TABLE IF NOT EXISTS flash_events (
     is_teammate     BOOLEAN NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS clutch_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id        INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    round_id        INTEGER NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
+    player          TEXT NOT NULL,
+    team            TEXT NOT NULL,
+    opponents_count INTEGER NOT NULL,
+    won             BOOLEAN NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS player_match_stats (
     match_id        INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
     player          TEXT NOT NULL,
@@ -242,6 +252,8 @@ CREATE INDEX IF NOT EXISTS idx_fires_round    ON weapon_fires(round_id);
 CREATE INDEX IF NOT EXISTS idx_fires_attacker ON weapon_fires(match_id, attacker);
 CREATE INDEX IF NOT EXISTS idx_bomb_round ON bomb_events(round_id);
 CREATE INDEX IF NOT EXISTS idx_flashes_round ON flash_events(round_id);
+CREATE INDEX IF NOT EXISTS idx_clutch_match ON clutch_events(match_id);
+CREATE INDEX IF NOT EXISTS idx_clutch_round ON clutch_events(round_id);
 CREATE INDEX IF NOT EXISTS idx_pms_match ON player_match_stats(match_id);
 CREATE INDEX IF NOT EXISTS idx_ac_match_player ON anticheat_flags(match_id, player);
 CREATE INDEX IF NOT EXISTS idx_ac_heuristic ON anticheat_flags(heuristic);
@@ -333,10 +345,19 @@ async def get_match(conn: aiosqlite.Connection, match_id: int):
     ) as cursor:
         stats = await cursor.fetchall()
 
+    async with conn.execute(
+        "SELECT ce.*, r.round_num FROM clutch_events ce "
+        "JOIN rounds r ON ce.round_id = r.id "
+        "WHERE ce.match_id = ? ORDER BY r.round_num ASC",
+        (match_id,)
+    ) as cursor:
+        clutches = await cursor.fetchall()
+
     return {
         "header": _row_to_camel(match_row),
         "players": [_row_to_camel(p) for p in players],
-        "stats": [_row_to_camel(s) for s in stats]
+        "stats": [_row_to_camel(s) for s in stats],
+        "clutches": [_row_to_camel(c) for c in clutches]
     }
 
 async def delete_match(conn: aiosqlite.Connection, match_id: int):
@@ -754,7 +775,7 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
 
     # Compute and update AIM and UTILITY metrics
     try:
-        from backend.analytics import compute_aim_stats, compute_utility_stats, compute_trade_stats
+        from backend.analytics import compute_aim_stats, compute_utility_stats, compute_trade_stats, compute_clutch_stats
         
         # 1. Update AIM stats
         aim_stats = compute_aim_stats(match_id)
@@ -808,7 +829,12 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
                     player
                 )
             )
+            
+        # Commit the transaction so that compute_clutch_stats can write without locks
         await conn.commit()
+            
+        # 4. Update CLUTCH stats
+        compute_clutch_stats(match_id)
     except Exception as e:
         import logging
         logging.getLogger("uvicorn.error").error(f"Failed to compute aim/utility stats: {e}")

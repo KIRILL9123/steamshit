@@ -1018,3 +1018,128 @@ def compute_trade_stats(match_id: int) -> dict[str, dict]:
         return trade_stats
     finally:
         conn.close()
+
+
+def compute_clutch_stats(match_id: int):
+    """Detect and record clutch situations (1vX) and update player match stats."""
+    log.info(f"Computing clutch stats for match {match_id}")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        # 1. Reset existing clutch events for this match
+        conn.execute("DELETE FROM clutch_events WHERE match_id = ?", (match_id,))
+        conn.execute(
+            "UPDATE player_match_stats SET clutches_won = 0, clutches_total = 0 WHERE match_id = ?",
+            (match_id,)
+        )
+        conn.commit()
+
+        # 2. Get rounds in match
+        cur = conn.execute(
+            "SELECT id, round_num, winner FROM rounds WHERE match_id = ? ORDER BY round_num ASC",
+            (match_id,)
+        )
+        rounds = [dict(r) for r in cur.fetchall()]
+        if not rounds:
+            return
+
+        # Get player starting teams
+        cur = conn.execute(
+            "SELECT player, team FROM player_match_stats WHERE match_id = ?",
+            (match_id,)
+        )
+        player_teams = {r["player"]: r["team"].upper() for r in cur.fetchall() if r["player"] and r["team"]}
+
+        # Halftime side swap detection
+        max_round = max(r["round_num"] for r in rounds)
+        halftime = 15 if max_round > 24 else 12
+
+        for r in rounds:
+            r_id = r["id"]
+            r_num = r["round_num"]
+            winner = r["winner"] # 'CT' or 'T'
+            if not winner:
+                continue
+
+            # Determine team sides in this round
+            if r_num <= halftime:
+                is_second_half = False
+            elif r_num <= halftime * 2:
+                is_second_half = True
+            else:
+                ot_round = r_num - halftime * 2 - 1
+                is_second_half = (ot_round // 3) % 2 == 1
+
+            # Build sets of CT and T players alive at start of round
+            alive_ct = set()
+            alive_t = set()
+            for p, team in player_teams.items():
+                is_ct = (team == 'CT') if not is_second_half else (team == 'T')
+                if is_ct:
+                    alive_ct.add(p)
+                else:
+                    alive_t.add(p)
+
+            # Enforce 5v5 start check (only count if they started with > 1 player alive)
+            had_more_than_one_ct = len(alive_ct) > 1
+            had_more_than_one_t = len(alive_t) > 1
+
+            # Load kills in this round ordered by tick
+            cur = conn.execute(
+                "SELECT tick, victim FROM kills WHERE round_id = ? ORDER BY tick ASC",
+                (r_id,)
+            )
+            kills = [dict(k) for k in cur.fetchall()]
+
+            ct_clutch = None # Will store dict if triggered
+            t_clutch = None
+
+            for k in kills:
+                victim = k["victim"]
+                alive_ct.discard(victim)
+                alive_t.discard(victim)
+
+                # Check CT clutch trigger
+                if len(alive_ct) == 1 and len(alive_t) >= 1 and ct_clutch is None and had_more_than_one_ct:
+                    ct_clutch = {
+                        "player": list(alive_ct)[0],
+                        "opponents": len(alive_t)
+                    }
+                # Check T clutch trigger
+                if len(alive_t) == 1 and len(alive_ct) >= 1 and t_clutch is None and had_more_than_one_t:
+                    t_clutch = {
+                        "player": list(alive_t)[0],
+                        "opponents": len(alive_ct)
+                    }
+
+            # Record clutches triggered in this round
+            # Outcome: won if their side won
+            if ct_clutch:
+                won = (winner == 'CT')
+                conn.execute(
+                    "INSERT INTO clutch_events (match_id, round_id, player, team, opponents_count, won) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (match_id, r_id, ct_clutch["player"], "CT", ct_clutch["opponents"], won)
+                )
+                conn.execute(
+                    "UPDATE player_match_stats SET clutches_total = clutches_total + 1, "
+                    "clutches_won = clutches_won + ? WHERE match_id = ? AND player = ?",
+                    (1 if won else 0, match_id, ct_clutch["player"])
+                )
+
+            if t_clutch:
+                won = (winner == 'T')
+                conn.execute(
+                    "INSERT INTO clutch_events (match_id, round_id, player, team, opponents_count, won) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (match_id, r_id, t_clutch["player"], "T", t_clutch["opponents"], won)
+                )
+                conn.execute(
+                    "UPDATE player_match_stats SET clutches_total = clutches_total + 1, "
+                    "clutches_won = clutches_won + ? WHERE match_id = ? AND player = ?",
+                    (1 if won else 0, match_id, t_clutch["player"])
+                )
+
+        conn.commit()
+    finally:
+        conn.close()

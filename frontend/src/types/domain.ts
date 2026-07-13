@@ -18,10 +18,21 @@ export interface AppInfo {
   sidecarAlive: boolean;
 }
 
-/** Composite response from `get_match(id)` — flattens header + players + stats. */
+export interface ClutchEvent {
+  id: number;
+  matchId: number;
+  roundId: number;
+  player: string;
+  team: 'CT' | 'T';
+  opponentsCount: number;
+  won: boolean;
+  roundNum: number;
+}
+
 export interface MatchDetail extends Match {
   players: Player[];
   stats: PlayerMatchStats[];
+  clutches: ClutchEvent[];
 }
 
 export interface Match {

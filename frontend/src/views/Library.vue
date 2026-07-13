@@ -99,11 +99,6 @@ async function importAndMaybeOpen(path: string) {
 function onDrop(e: DragEvent) {
   e.preventDefault();
   dragOver.value = false;
-  // Tauri 2 forwards OS file drops via the `tauri://drag-drop` event;
-  // the browser drop event carries a `DataTransfer` with file metadata
-  // but the *path* is only available through Tauri's API. In a real
-  // build, use the `tauri-plugin-fs` watch + drag event hooks. For the
-  // dev preview we fall back to the file picker.
   toast.info('Перетаскивание появится в week 5', 'Пока используйте кнопку «Импорт демо».');
   void e;
 }

@@ -1,13 +1,13 @@
-import os
 import asyncio
+import os
 import subprocess
+
 import typer
+from backend.analytics import generate_coach_tips, run_anticheat_analysis
+from backend.database import find_match_by_hash, get_connection, init_db, insert_parsed_demo
+from backend.parser import get_file_hash, parse_demo
 from rich.console import Console
 from rich.table import Table
-
-from backend.database import get_connection, init_db, find_match_by_hash, insert_parsed_demo
-from backend.parser import parse_demo, get_file_hash
-from backend.analytics import run_anticheat_analysis, generate_coach_tips
 
 app = typer.Typer(help="Fragscope CS2 Demo Analyzer CLI")
 console = Console()
@@ -19,7 +19,7 @@ def parse(demo_path: str):
         console.print(f"[red]Error: Demo file '{demo_path}' not found.[/red]")
         raise typer.Exit(code=1)
 
-    console.print(f"[cyan]Initializing database...[/cyan]")
+    console.print("[cyan]Initializing database...[/cyan]")
     asyncio.run(init_db())
 
     # Get file hash and size
@@ -34,16 +34,16 @@ def parse(demo_path: str):
                 console.print(f"[yellow]Match already imported! ID: {existing['id']}, Map: {existing['map_name']}[/yellow]")
                 return existing["id"]
 
-            console.print(f"[cyan]Parsing demo (using demoparser2)...[/cyan]")
+            console.print("[cyan]Parsing demo (using demoparser2)...[/cyan]")
             parsed_data = parse_demo(demo_path, include_ticks=True)
 
-            console.print(f"[cyan]Saving match data to SQLite...[/cyan]")
+            console.print("[cyan]Saving match data to SQLite...[/cyan]")
             match_id = await insert_parsed_demo(conn, parsed_data, demo_path, file_hash, file_size)
 
-            console.print(f"[cyan]Running anticheat analysis...[/cyan]")
-            await run_anticheat_analysis(match_id)
+            console.print("[cyan]Running anticheat analysis...[/cyan]")
+            await run_anticheat_analysis(match_id, parsed_data.get("ticks_df"))
 
-            console.print(f"[cyan]Generating coaching tips...[/cyan]")
+            console.print("[cyan]Generating coaching tips...[/cyan]")
             await generate_coach_tips(match_id)
 
             console.print(f"[green]Successfully parsed and imported! Match ID: {match_id}[/green]")
@@ -84,7 +84,7 @@ def highlights(match_id: int, video: str = typer.Option(None, help="Path to vide
                 kill_rows = await cursor.fetchall()
 
             console.print(f"\n[bold green]=== HIGHLIGHTS FOR MATCH {match_id} ({match_row['map_name']}) ===[/bold green]")
-            
+
             # Print multi-kill table
             table = Table(title="Top Performance / Multi-Kills")
             table.add_column("Player", style="cyan")
@@ -128,7 +128,7 @@ def highlights(match_id: int, video: str = typer.Option(None, help="Path to vide
                         # Multi-kill highlight!
                         start_tick = kills_in_round[0]["tick"] - 320  # ~5 seconds before first kill
                         end_tick = kills_in_round[-1]["tick"] + 320   # ~5 seconds after last kill
-                        
+
                         description = f"{cnt}K round by {att}"
                         highlights_found.append({
                             "round_num": r_num,
@@ -144,7 +144,7 @@ def highlights(match_id: int, video: str = typer.Option(None, help="Path to vide
                 console.print("[yellow]No significant highlights found (no 3K/4K/5K rounds).[/yellow]")
                 return
 
-            console.print(f"\n[bold]Detected Highlight Clips:[/bold]")
+            console.print("\n[bold]Detected Highlight Clips:[/bold]")
             for idx, h in enumerate(highlights_found):
                 console.print(f"[{idx}] Round {h['round_num']}: [cyan]{h['description']}[/cyan] (ticks {h['start_tick']} - {h['end_tick']})")
 

@@ -1,8 +1,3 @@
-/**
- * Shared types mirroring `src-tauri/src/core/models.rs`.
- * Keep the field names and types in sync — Tauri serialises structs as
- * camelCase, so we use the same convention here.
- */
 
 export type Team = 'ct' | 't' | 'spectator';
 export type DemoType = 'valve' | 'faceit' | 'hltv' | 'unknown';
@@ -208,4 +203,15 @@ export interface UtilityStats {
 export interface AppErrorWire {
   kind: string;
   message: string;
+}
+
+export interface PlayerMovementPoint {
+  player: string;
+  tick: number;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  yaw: number | null;
+  health: number;
+  is_alive: boolean;
 }

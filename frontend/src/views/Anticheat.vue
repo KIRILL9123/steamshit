@@ -36,7 +36,11 @@ async function recompute() {
   try {
     flags.value = await api.computeAnticheat(matchId.value);
   } catch (e: any) {
-    error.value = e?.message ?? String(e);
+    if (e?.status === 404) {
+      error.value = 'Исходный файл демки не найден, пересчёт невозможен';
+    } else {
+      error.value = e?.message ?? String(e);
+    }
   } finally {
     computing.value = false;
   }

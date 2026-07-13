@@ -1,22 +1,35 @@
-import os
 import asyncio
 import logging
-from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Query
+import os
+
+import aiosqlite
+from backend.analytics import generate_coach_tips, run_anticheat_analysis
+from backend.database import (
+    delete_match,
+    find_match_by_hash,
+    get_anticheat_flags,
+    get_coach_tips,
+    get_connection,
+    get_db,
+    get_heatmap_data,
+    get_match,
+    get_round_grenades,
+    get_round_kills,
+    get_round_movement,
+    get_setting,
+    get_utility_throws,
+    init_db,
+    insert_parsed_demo,
+    list_matches,
+    list_round_progression,
+    list_rounds,
+    set_setting,
+)
+from backend.parser import get_file_hash, parse_demo
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import aiosqlite
-from watchfiles import awatch, Change
-
-from backend.database import (
-    get_db, init_db, list_matches, get_match, delete_match,
-    list_round_progression, get_utility_throws, get_heatmap_data,
-    list_rounds, get_round_kills, get_round_grenades,
-    get_anticheat_flags, get_coach_tips, find_match_by_hash,
-    insert_parsed_demo, get_connection, get_setting, set_setting
-)
-from backend.parser import parse_demo, get_file_hash
-from backend.analytics import run_anticheat_analysis, generate_coach_tips
+from watchfiles import Change, awatch
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("uvicorn.error")
@@ -32,15 +45,15 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-watch_task: Optional[asyncio.Task] = None
-current_watch_path: Optional[str] = None
+watch_task: asyncio.Task | None = None
+current_watch_path: str | None = None
 
 async def scan_and_import_folder(path: str):
     """Scan folder for any .dem or .dem.zst files and import them if not already in the database."""
     log.info(f"Scanning watch folder for existing demos: {path}")
     if not os.path.exists(path) or not os.path.isdir(path):
         return
-    
+
     try:
         for filename in os.listdir(path):
             if filename.endswith(".dem") or filename.endswith(".dem.zst"):
@@ -54,11 +67,11 @@ async def scan_and_import_folder(path: str):
                         existing = await find_match_by_hash(db, file_hash)
                         if existing:
                             continue
-                        
+
                         log.info(f"Auto-importing existing demo from scan: {filepath}")
                         parsed_data = parse_demo(filepath, include_ticks=True)
                         match_id = await insert_parsed_demo(db, parsed_data, filepath, file_hash, file_size)
-                        await run_anticheat_analysis(match_id)
+                        await run_anticheat_analysis(match_id, parsed_data.get("ticks_df"))
                         await generate_coach_tips(match_id)
                         log.info(f"Auto-imported existing match ID: {match_id}")
                 except Exception as e:
@@ -70,10 +83,10 @@ async def watch_folder_loop(path: str):
     global current_watch_path
     current_watch_path = path
     log.info(f"Starting directory watcher for: {path}")
-    
+
     # Run initial scan for existing demos
     await scan_and_import_folder(path)
-    
+
     try:
         async for changes in awatch(path):
             for change_type, filepath in changes:
@@ -88,11 +101,11 @@ async def watch_folder_loop(path: str):
                             if existing:
                                 log.info(f"Demo already imported (deduplicated): {filepath}")
                                 continue
-                            
+
                             log.info(f"Auto-importing demo: {filepath}")
                             parsed_data = parse_demo(filepath, include_ticks=True)
                             match_id = await insert_parsed_demo(db, parsed_data, filepath, file_hash, file_size)
-                            await run_anticheat_analysis(match_id)
+                            await run_anticheat_analysis(match_id, parsed_data.get("ticks_df"))
                             await generate_coach_tips(match_id)
                             log.info(f"Auto-imported match ID: {match_id}")
                     except Exception as e:
@@ -104,7 +117,7 @@ async def watch_folder_loop(path: str):
         log.error(f"Error in directory watcher: {e}")
         current_watch_path = None
 
-async def restart_watch_folder(path: Optional[str]):
+async def restart_watch_folder(path: str | None):
     global watch_task, current_watch_path
     if watch_task:
         log.info("Stopping existing directory watcher")
@@ -141,7 +154,7 @@ class ImportRequest(BaseModel):
     path: str
 
 class WatchSettingsRequest(BaseModel):
-    watch_folder: Optional[str]
+    watch_folder: str | None
 
 # Endpoints
 @app.get("/api/ping")
@@ -193,12 +206,12 @@ async def import_match_endpoint(req: ImportRequest):
 
         # Parse demo
         parsed_data = parse_demo(req.path, include_ticks=True)
-        
+
         # Save to DB
         match_id = await insert_parsed_demo(db, parsed_data, req.path, file_hash, file_size)
 
         # Run anticheat & coaching
-        await run_anticheat_analysis(match_id)
+        await run_anticheat_analysis(match_id, parsed_data.get("ticks_df"))
         await generate_coach_tips(match_id)
 
         # Fetch and return match header
@@ -233,14 +246,17 @@ async def get_anticheat_flags_endpoint(match_id: int, db: aiosqlite.Connection =
 @app.post("/api/matches/{match_id}/compute_anticheat")
 async def compute_anticheat_endpoint(match_id: int):
     # Run analysis
-    await run_anticheat_analysis(match_id)
+    try:
+        await run_anticheat_analysis(match_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     async with get_connection() as db:
         return await get_anticheat_flags(db, match_id)
 
 @app.get("/api/matches/{match_id}/coach_tips")
 async def get_coach_tips_endpoint(
-    match_id: int, 
-    player: Optional[str] = Query(None), 
+    match_id: int,
+    player: str | None = Query(None),
     db: aiosqlite.Connection = Depends(get_db)
 ):
     return await get_coach_tips(db, match_id, player)
@@ -254,8 +270,8 @@ async def regenerate_coach_tips_endpoint(match_id: int):
 
 @app.get("/api/matches/{match_id}/heatmap_data")
 async def get_heatmap_data_endpoint(
-    match_id: int, 
-    player: Optional[str] = Query(None), 
+    match_id: int,
+    player: str | None = Query(None),
     db: aiosqlite.Connection = Depends(get_db)
 ):
     return await get_heatmap_data(db, match_id, player)
@@ -272,7 +288,11 @@ async def get_round_kills_endpoint(round_id: int, db: aiosqlite.Connection = Dep
 async def get_round_grenades_endpoint(round_id: int, db: aiosqlite.Connection = Depends(get_db)):
     return await get_round_grenades(db, round_id)
 
-def autodetect_cs2_demos_path() -> Optional[str]:
+@app.get("/api/rounds/{round_id}/movement")
+async def get_round_movement_endpoint(round_id: int, db: aiosqlite.Connection = Depends(get_db)):
+    return await get_round_movement(db, round_id)
+
+def autodetect_cs2_demos_path() -> str | None:
     """Search for the standard CS2 replays directory in Steam installations."""
     if os.name == "nt":
         import winreg

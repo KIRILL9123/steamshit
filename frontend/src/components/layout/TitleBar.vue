@@ -20,7 +20,6 @@ onMounted(async () => {
 <template>
   <header
     class="flex h-10 shrink-0 items-center justify-between border-b border-border bg-bg-elev px-3"
-    data-tauri-drag-region
   >
     <div class="flex items-center gap-2 text-sm">
       <Icon name="crosshair" :size="16" class="text-accent" />

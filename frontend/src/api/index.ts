@@ -1,11 +1,13 @@
-import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats } from '@/types/domain';
+import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats, PlayerMovementPoint } from '@/types/domain';
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   try {
     const res = await fetch(url, init);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `HTTP error! Status: ${res.status}`);
+      const error = new Error(err.detail || `HTTP error! Status: ${res.status}`);
+      (error as any).status = res.status;
+      throw error;
     }
     return await res.json();
   } catch (e: any) {
@@ -123,6 +125,9 @@ export const api = {
   },
   getRoundGrenades(roundId: number): Promise<RoundGrenadeEvent[]> {
     return call<RoundGrenadeEvent[]>(`/api/rounds/${roundId}/grenades`);
+  },
+  getRoundMovement(roundId: number): Promise<PlayerMovementPoint[]> {
+    return call<PlayerMovementPoint[]>(`/api/rounds/${roundId}/movement`);
   },
 
   // --- settings ---

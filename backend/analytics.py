@@ -1,16 +1,55 @@
 import json
 import logging
+import os
+
 import polars as pl
-from backend.database import load_kills, load_ticks, DB_PATH, save_anticheat_flags, save_coach_tips, get_connection
+from backend.database import (
+    DB_PATH,
+    get_connection,
+    load_kills,
+    save_anticheat_flags,
+    save_coach_tips,
+)
 
 log = logging.getLogger("backend.analytics")
 
-async def run_anticheat_analysis(match_id: int):
+async def run_anticheat_analysis(match_id: int, ticks_df: pl.DataFrame | None = None):
     """Run anticheat heuristic analysis and store flags in the DB."""
     log.info(f"Running anticheat analysis for match {match_id}")
+
+    ticks = ticks_df
+    if ticks is None or ticks.is_empty():
+        # Load match file_path and parse ticks on the fly
+        file_path = None
+        try:
+            async with get_connection() as conn:
+                async with conn.execute("SELECT file_path FROM matches WHERE id = ?", (match_id,)) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        file_path = row["file_path"]
+        except Exception as e:
+            log.error(f"Failed to query match file_path for anticheat: {e}")
+            return []
+
+        if not file_path or not os.path.exists(file_path):
+            raise FileNotFoundError(f"Demo file not found on disk: {file_path}")
+
+        try:
+            log.info(f"Parsing ticks on the fly from {file_path} for anticheat")
+            from demoparser2 import DemoParser
+            parser = DemoParser(file_path)
+            ticks = pl.from_pandas(parser.parse_ticks([
+                "X", "Y", "Z", "yaw", "pitch", "health", "armor_value",
+                "velocity_X", "velocity_Y", "velocity_Z", "is_alive",
+                "is_planting", "is_defusing"
+            ]))
+            ticks = ticks.rename({"name": "player"})
+        except Exception as e:
+            log.error(f"Failed to parse ticks on the fly: {e}")
+            return []
+
     try:
         kills = load_kills(DB_PATH, match_id)
-        ticks = load_ticks(DB_PATH, match_id)
     except Exception as e:
         log.error(f"Failed to load data for anticheat: {e}")
         return []

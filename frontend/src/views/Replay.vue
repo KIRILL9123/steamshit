@@ -7,7 +7,7 @@ import BaseCard from '@/components/ui/BaseCard.vue';
 import Icon from '@/components/ui/Icon.vue';
 import { api, type RoundKillEvent, type RoundGrenadeEvent } from '@/api/index';
 import { useMatchesStore } from '@/stores/matches';
-import type { Round } from '@/types/domain';
+import type { Round, PlayerMovementPoint } from '@/types/domain';
 import { MAP_METADATA } from '@/constants/maps';
 
 const route = useRoute();
@@ -21,6 +21,7 @@ const rounds = ref<Round[]>([]);
 const selectedRound = ref<Round | null>(null);
 const kills = ref<RoundKillEvent[]>([]);
 const grenades = ref<RoundGrenadeEvent[]>([]);
+const movements = ref<PlayerMovementPoint[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
 
@@ -71,6 +72,22 @@ const progressPct = computed(() =>
   totalTicks.value > 0 ? (currentTick.value / totalTicks.value) * 100 : 0
 );
 
+// Grouped player movements for the current tick
+const currentMovements = computed(() => {
+  if (!movements.value.length) return [];
+  const targetTick = roundStartTick.value + currentTick.value;
+  const playerPositions: Record<string, PlayerMovementPoint> = {};
+  for (const pt of movements.value) {
+    if (pt.tick <= targetTick) {
+      const existing = playerPositions[pt.player];
+      if (!existing || pt.tick > existing.tick) {
+        playerPositions[pt.player] = pt;
+      }
+    }
+  }
+  return Object.values(playerPositions);
+});
+
 // ── Canvas ref ───────────────────────────────────────────────────────────────
 const canvas = ref<HTMLCanvasElement | null>(null);
 let animId: number | null = null;
@@ -98,14 +115,17 @@ async function selectRound(r: Round) {
   currentTick.value = 0;
   kills.value = [];
   grenades.value = [];
+  movements.value = [];
   loading.value = true;
   try {
-    const [k, g] = await Promise.all([
+    const [k, g, m] = await Promise.all([
       api.getRoundKills(r.id),
       api.getRoundGrenades(r.id),
+      api.getRoundMovement(r.id),
     ]);
     kills.value = k;
     grenades.value = g;
+    movements.value = m;
   } catch (e: any) {
     error.value = e?.message ?? String(e);
   } finally {
@@ -360,6 +380,46 @@ function drawScene() {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  // ── Draw player positions ────────────────────────────────────────────────
+  for (const p of currentMovements.value) {
+    if (!p.is_alive || p.x == null || p.y == null) continue;
+    const px = tx(p.x);
+    const py = ty(p.y);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(px, py, 5.5, 0, Math.PI * 2);
+
+    // Color code by team
+    const playerDetail = detail.value?.players?.find((pl) => pl.name === p.player);
+    const team = playerDetail?.team?.toLowerCase();
+    const color = team === 'ct' ? '#3b82f6' : team === 't' ? '#f59e0b' : '#10b981';
+
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Draw health bar border/background
+    const hw = 14;
+    const hh = 3;
+    const hx = px - hw / 2;
+    const hy = py + 7;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(hx, hy, hw, hh);
+    // Draw health green fill
+    ctx.fillStyle = '#22c55e';
+    ctx.fillRect(hx, hy, hw * (p.health / 100), hh);
+
+    // Draw player name tag
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.player, px, py - 9);
+    ctx.restore();
   }
 
   // ── Round info overlay ────────────────────────────────────────────────────

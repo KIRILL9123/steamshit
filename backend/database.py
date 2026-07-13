@@ -1,9 +1,11 @@
-import os
+import gzip
+import datetime
 import sqlite3
 import json
-import datetime
+import os
 from typing import Optional
 from contextlib import asynccontextmanager
+
 import aiosqlite
 import polars as pl
 
@@ -49,6 +51,7 @@ CREATE TABLE IF NOT EXISTS rounds (
     bomb_site       TEXT,
     ct_score        INTEGER,
     t_score         INTEGER,
+    movement_data   BLOB,
     UNIQUE(match_id, round_num)
 );
 
@@ -118,20 +121,6 @@ CREATE TABLE IF NOT EXISTS bomb_events (
     x REAL, y REAL, z REAL
 );
 
-CREATE TABLE IF NOT EXISTS ticks (
-    match_id        INTEGER NOT NULL,
-    round_id        INTEGER NOT NULL,
-    tick            INTEGER NOT NULL,
-    player          TEXT NOT NULL,
-    x REAL, y REAL, z REAL,
-    yaw REAL, pitch REAL,
-    health INTEGER, armor INTEGER,
-    velocity_x REAL, velocity_y REAL, velocity_z REAL,
-    is_alive        INTEGER,
-    is_planting     INTEGER DEFAULT 0,
-    is_defusing     INTEGER DEFAULT 0,
-    PRIMARY KEY (round_id, player, tick)
-) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS player_match_stats (
     match_id        INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
@@ -216,7 +205,6 @@ CREATE INDEX IF NOT EXISTS idx_fires_match    ON weapon_fires(match_id);
 CREATE INDEX IF NOT EXISTS idx_fires_round    ON weapon_fires(round_id);
 CREATE INDEX IF NOT EXISTS idx_fires_attacker ON weapon_fires(match_id, attacker);
 CREATE INDEX IF NOT EXISTS idx_bomb_round ON bomb_events(round_id);
-CREATE INDEX IF NOT EXISTS idx_ticks_match_player ON ticks(match_id, player);
 CREATE INDEX IF NOT EXISTS idx_pms_match ON player_match_stats(match_id);
 CREATE INDEX IF NOT EXISTS idx_ac_match_player ON anticheat_flags(match_id, player);
 CREATE INDEX IF NOT EXISTS idx_ac_heuristic ON anticheat_flags(heuristic);
@@ -275,12 +263,12 @@ async def get_match(conn: aiosqlite.Connection, match_id: int):
         match_row = await cursor.fetchone()
         if not match_row:
             return None
-            
+
     async with conn.execute("SELECT * FROM players WHERE match_id = ?", (match_id,)) as cursor:
         players = await cursor.fetchall()
-        
+
     async with conn.execute(
-        "SELECT * FROM player_match_stats WHERE match_id = ? ORDER BY rating DESC, kills DESC", 
+        "SELECT * FROM player_match_stats WHERE match_id = ? ORDER BY rating DESC, kills DESC",
         (match_id,)
     ) as cursor:
         stats = await cursor.fetchall()
@@ -332,7 +320,7 @@ async def get_utility_throws(conn: aiosqlite.Connection, match_id: int):
         thrower = r["thrower"]
         nade_type = r["nade_type"].lower()
         count = r["count"]
-        
+
         if thrower not in stats_map:
             stats_map[thrower] = {
                 "player": thrower,
@@ -342,7 +330,7 @@ async def get_utility_throws(conn: aiosqlite.Connection, match_id: int):
                 "molly": 0,
                 "decoy": 0
             }
-            
+
         stats = stats_map[thrower]
         if nade_type in ("hegrenade", "he"):
             stats["he"] += count
@@ -364,10 +352,10 @@ async def get_heatmap_data(conn: aiosqlite.Connection, match_id: int, player: st
     if player:
         query += " AND attacker = ?"
         params.append(player)
-        
+
     async with conn.execute(query, params) as cursor:
         rows = await cursor.fetchall()
-        
+
     points = []
     for r in rows:
         ax, ay, vx, vy = r["attacker_x"], r["attacker_y"], r["victim_x"], r["victim_y"]
@@ -375,7 +363,7 @@ async def get_heatmap_data(conn: aiosqlite.Connection, match_id: int, player: st
             points.append({"x": ax, "y": ay, "kind": "kill_attacker"})
         if vx is not None and vy is not None:
             points.append({"x": vx, "y": vy, "kind": "kill_victim"})
-            
+
     return points
 
 # ---------------------------------------------------------------------------
@@ -457,6 +445,24 @@ async def get_round_grenades(conn: aiosqlite.Connection, round_id: int):
             for r in rows
         ]
 
+async def get_round_movement(conn: aiosqlite.Connection, round_id: int):
+    """Get decompressed movement data for a specific round."""
+    async with conn.execute(
+        "SELECT movement_data FROM rounds WHERE id = ?",
+        (round_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+        if not row or not row["movement_data"]:
+            return []
+        try:
+            compressed = row["movement_data"]
+            decompressed = gzip.decompress(compressed)
+            return json.loads(decompressed.decode("utf-8"))
+        except Exception as e:
+            import logging
+            logging.getLogger("uvicorn.error").error(f"Failed to decompress movement_data: {e}")
+            return []
+
 # ---------------------------------------------------------------------------
 # Coach & Anticheat operations
 # ---------------------------------------------------------------------------
@@ -504,7 +510,7 @@ async def get_coach_tips(conn: aiosqlite.Connection, match_id: int, player: str 
         query += " AND (player = ? OR player IS NULL)"
         params.append(player)
     query += " ORDER BY priority DESC"
-    
+
     async with conn.execute(query, params) as cursor:
         rows = await cursor.fetchall()
         return [
@@ -546,8 +552,8 @@ async def save_coach_tips(conn: aiosqlite.Connection, match_id: int, tips: list)
 async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file_path: str, file_hash: str, file_size: int) -> int:
     """Insert parsed demo data into the database in a transaction."""
     header = parsed_data["header"]
-    parsed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    
+    parsed_at = datetime.datetime.now(datetime.UTC).isoformat()
+
     # 1. Insert match
     cursor = await conn.execute(
         "INSERT INTO matches (file_path, file_hash, file_size, map_name, server_name, client_name, "
@@ -559,7 +565,7 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
         )
     )
     match_id = cursor.lastrowid
-    
+
     # 2. Insert players
     for p in parsed_data["players"]:
         await conn.execute(
@@ -567,16 +573,17 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
             "VALUES (?, ?, ?, ?, ?, ?)",
             (match_id, p["steam_id"], p["name"], p["team"], p.get("initial_side"), p.get("user_id"))
         )
-        
+
     # 3. Insert rounds
     round_id_map = {}  # round_num -> round_id
     for r in parsed_data["rounds"]:
         cur = await conn.execute(
-            "INSERT INTO rounds (match_id, round_num, start_tick, freeze_end_tick, end_tick, winner, reason, bomb_plant, bomb_site, ct_score, t_score) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO rounds (match_id, round_num, start_tick, freeze_end_tick, end_tick, winner, reason, bomb_plant, bomb_site, ct_score, t_score, movement_data) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 match_id, r["round_num"], r["start_tick"], r["freeze_end_tick"], r["end_tick"],
-                r["winner"], r["reason"], r["bomb_plant"], r["bomb_site"], r["ct_score"], r["t_score"]
+                r["winner"], r["reason"], r["bomb_plant"], r["bomb_site"], r["ct_score"], r["t_score"],
+                r.get("movement_data")
             )
         )
         round_id_map[r["round_num"]] = cur.lastrowid
@@ -649,21 +656,6 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
             )
         )
 
-    # 9. Insert ticks
-    if parsed_data["ticks"]:
-        for t in parsed_data["ticks"]:
-            round_id = round_id_map.get(t["round_num"])
-            if not round_id:
-                continue
-            await conn.execute(
-                "INSERT OR REPLACE INTO ticks (match_id, round_id, tick, player, x, y, z, yaw, pitch, health, armor, velocity_x, velocity_y, velocity_z, is_alive, is_planting, is_defusing) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    match_id, round_id, t["tick"], t["player_name"], t["x"], t["y"], t["z"],
-                    t["yaw"], t["pitch"], t["health"], t["armor"], t["velocity_x"], t["velocity_y"], t["velocity_z"],
-                    t["is_alive"], t["is_planting"], t["is_defusing"]
-                )
-            )
 
     # 10. Insert player stats overview
     from backend.parser import aggregate_player_stats
@@ -683,7 +675,7 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
                 s["first_bloods"], s["mvp_count"]
             )
         )
-        
+
     await conn.commit()
     return match_id
 
@@ -691,15 +683,15 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
 # App Settings Helpers
 # ---------------------------------------------------------------------------
 
-async def get_setting(conn: aiosqlite.Connection, key: str) -> Optional[str]:
+async def get_setting(conn: aiosqlite.Connection, key: str) -> str | None:
     """Retrieve setting value by key."""
     async with conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)) as cursor:
         row = await cursor.fetchone()
         return row[0] if row else None
 
-async def set_setting(conn: aiosqlite.Connection, key: str, value: Optional[str]):
+async def set_setting(conn: aiosqlite.Connection, key: str, value: str | None):
     """Insert or update setting value."""
-    updated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    updated_at = datetime.datetime.now(datetime.UTC).isoformat()
     await conn.execute(
         "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)",
         (key, value, updated_at)
@@ -719,12 +711,4 @@ def load_kills(db_path: str, match_id: int) -> pl.DataFrame:
     finally:
         conn.close()
 
-def load_ticks(db_path: str, match_id: int) -> pl.DataFrame:
-    """Load ticks for coach / anticheat processing."""
-    conn = sqlite3.connect(db_path)
-    try:
-        query = f"SELECT * FROM ticks WHERE match_id = {match_id}"
-        return pl.read_database(query, conn)
-    finally:
-        conn.close()
 

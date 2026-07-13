@@ -1,8 +1,11 @@
-import os
-import math
-import hashlib
 import datetime
+import gzip
+import hashlib
+import json
 import logging
+import math
+import os
+
 import polars as pl
 from demoparser2 import DemoParser
 
@@ -92,19 +95,36 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
     # Match date from file mtime
     try:
         mtime = os.path.getmtime(demo_path)
-        match_date = datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc).isoformat()
+        match_date = datetime.datetime.fromtimestamp(mtime, tz=datetime.UTC).isoformat()
     except Exception:
-        match_date = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        match_date = datetime.datetime.now(datetime.UTC).isoformat()
 
     # 2. Events & DataFrames
     # Get all available events
     avail_events = parser.list_game_events()
 
     # Rounds
-    round_start = parser.parse_event("round_start") if "round_start" in avail_events else pl.DataFrame()
-    round_end = parser.parse_event("round_end") if "round_end" in avail_events else pl.DataFrame()
-    round_freeze_end = parser.parse_event("round_freeze_end") if "round_freeze_end" in avail_events else pl.DataFrame()
-    round_officially_ended = parser.parse_event("round_officially_ended") if "round_officially_ended" in avail_events else pl.DataFrame()
+    # Note: demoparser2 returns a Pandas DataFrame by default in this environment,
+    # so we wrap its outputs in pl.from_pandas() to convert them to Polars DataFrames.
+    try:
+        round_start = pl.from_pandas(parser.parse_event("round_start"))
+    except Exception:
+        round_start = pl.DataFrame()
+
+    try:
+        round_end = pl.from_pandas(parser.parse_event("round_end"))
+    except Exception:
+        round_end = pl.DataFrame()
+
+    try:
+        round_freeze_end = pl.from_pandas(parser.parse_event("round_freeze_end"))
+    except Exception:
+        round_freeze_end = pl.DataFrame()
+
+    try:
+        round_officially_ended = pl.from_pandas(parser.parse_event("round_officially_ended"))
+    except Exception:
+        round_officially_ended = pl.DataFrame()
 
     # Combine round boundaries
     rounds_list = []
@@ -195,7 +215,7 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
     # 3. Kills
     kills_list = []
     if "player_death" in avail_events:
-        kills_df = parser.parse_event("player_death", player=["X", "Y", "Z", "attackerblind"])
+        kills_df = pl.from_pandas(parser.parse_event("player_death", player=["X", "Y", "Z", "attackerblind"]))
         for row in kills_df.to_dicts():
             tick = row.get("tick", 0)
             # Distance
@@ -226,7 +246,7 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
     # 4. Damages
     damages_list = []
     if "player_hurt" in avail_events:
-        damages_df = parser.parse_event("player_hurt")
+        damages_df = pl.from_pandas(parser.parse_event("player_hurt"))
         for row in damages_df.to_dicts():
             tick = row.get("tick", 0)
             hg = row.get("hitgroup", 0)
@@ -245,7 +265,7 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
     grenades_list = []
     try:
         # Use demoparser2's parse_grenades() which returns the trail positions
-        grenades_df = parser.parse_grenades()
+        grenades_df = pl.from_pandas(parser.parse_grenades())
         if not grenades_df.is_empty():
             # Group by entity_id (or entityid)
             entity_col = "entity_id" if "entity_id" in grenades_df.columns else "entityid"
@@ -261,13 +281,13 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
                 pl.col("thrower_name").first().alias("thrower_name") if "thrower_name" in grenades_df.columns else pl.col("thrower").first().alias("thrower_name"),
                 pl.col("grenade_type").first().alias("nade_type")
             ])
-            
+
             for row in grouped.to_dicts():
                 tt = row["throw_tick"]
                 lt = row["land_tick"]
                 dur = max(0, lt - tt)
                 nt = row["nade_type"].lower()
-                
+
                 # Normalise nade type name
                 if "smoke" in nt: nade_type = "smoke"
                 elif "flash" in nt: nade_type = "flash"
@@ -292,7 +312,7 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
     # 6. Weapon Fires (Shots)
     shots_list = []
     if "weapon_fire" in avail_events:
-        shots_df = parser.parse_event("weapon_fire")
+        shots_df = pl.from_pandas(parser.parse_event("weapon_fire"))
         for row in shots_df.to_dicts():
             tick = row.get("tick", 0)
             shots_list.append({
@@ -313,12 +333,12 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
         ("bomb_pickup", "pickup")
     ]:
         if evt_name in avail_events:
-            df = parser.parse_event(evt_name)
+            df = pl.from_pandas(parser.parse_event(evt_name))
             for row in df.to_dicts():
                 tick = row.get("tick", 0)
                 site_code = row.get("site")
                 site = "A" if site_code in (220, 4) else ("B" if site_code else None)
-                
+
                 # Check for round bomb plant update
                 if db_evt == "plant" and site:
                     for r in rounds_list:
@@ -336,30 +356,47 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
                 })
 
     # 8. Ticks (if requested)
-    ticks_list = []
+    ticks_df = None
     if include_ticks:
         try:
-            ticks_df = parser.parse_ticks([
-                "X", "Y", "Z", "yaw", "pitch", "health", "armor_value", 
-                "velocity_X", "velocity_Y", "velocity_Z", "is_alive", 
+            ticks_df = pl.from_pandas(parser.parse_ticks([
+                "X", "Y", "Z", "yaw", "pitch", "health", "armor_value",
+                "velocity_X", "velocity_Y", "velocity_Z", "is_alive",
                 "is_planting", "is_defusing"
+            ]))
+            ticks_df = ticks_df.rename({"name": "player"})
+
+            # --- Downsample and group by round for movement_data BLOB ---
+            tick_rate = raw_header.get("tick_rate") or 64
+            n = max(1, round(tick_rate / 16))
+
+            # Project and rename ticks
+            downsampled_df = ticks_df.filter(pl.col("tick") % n == 0).select([
+                pl.col("player"),
+                pl.col("tick"),
+                pl.col("X").alias("x"),
+                pl.col("Y").alias("y"),
+                pl.col("Z").alias("z"),
+                pl.col("yaw"),
+                pl.col("health"),
+                pl.col("is_alive")
             ])
-            for row in ticks_df.to_dicts():
-                tick = row.get("tick", 0)
-                ticks_list.append({
-                    "round_num": get_round_num_for_tick(tick),
-                    "tick": tick,
-                    "player_name": row.get("name") or "Unknown",
-                    "x": row.get("X"), "y": row.get("Y"), "z": row.get("Z"),
-                    "yaw": row.get("yaw"), "pitch": row.get("pitch"),
-                    "health": row.get("health", 0), "armor": row.get("armor_value", 0),
-                    "velocity_x": row.get("velocity_X"), "velocity_y": row.get("velocity_Y"), "velocity_z": row.get("velocity_Z"),
-                    "is_alive": 1 if row.get("is_alive") else 0,
-                    "is_planting": 1 if row.get("is_planting") else 0,
-                    "is_defusing": 1 if row.get("is_defusing") else 0
-                })
+
+            # Assign movement_data blob per round
+            for r in rounds_list:
+                start = r["start_tick"] or 0
+                end = r["official_end_tick"] or r["end_tick"] or 999999999
+                round_ticks = downsampled_df.filter((pl.col("tick") >= start) & (pl.col("tick") <= end))
+
+                if not round_ticks.is_empty():
+                    ticks_data = round_ticks.to_dicts()
+                    json_bytes = json.dumps(ticks_data).encode("utf-8")
+                    compressed = gzip.compress(json_bytes)
+                    r["movement_data"] = compressed
+                else:
+                    r["movement_data"] = None
         except Exception as e:
-            log.warning(f"Failed to parse ticks: {e}")
+            log.warning(f"Failed to parse ticks and movement data: {e}")
 
     # 9. Roster/Players
     # Query ticks at round end ticks to get names, steamids and teams
@@ -368,14 +405,14 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
         round_end_ticks = [r["end_tick"] for r in rounds_list if r["end_tick"] is not None]
         if not round_end_ticks:
             round_end_ticks = [1000]
-            
-        roster_df = parser.parse_ticks(["team_num", "steamid"], ticks=round_end_ticks)
+
+        roster_df = pl.from_pandas(parser.parse_ticks(["team_num", "steamid"], ticks=round_end_ticks))
         seen_players = {}
         for row in roster_df.to_dicts():
             name = row.get("name")
             steamid = row.get("steamid")
             team_num = row.get("team_num")
-            
+
             if name and name not in seen_players:
                 seen_players[name] = {
                     "name": name,
@@ -386,7 +423,7 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
         players_list = list(seen_players.values())
     except Exception as e:
         log.warning(f"Failed to extract roster from ticks: {e}")
-        
+
     # Fallback to names in kills
     if not players_list:
         names = set()
@@ -412,7 +449,8 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
         "grenades": grenades_list,
         "shots": shots_list,
         "bomb": bomb_list,
-        "ticks": ticks_list
+        "ticks": [],
+        "ticks_df": ticks_df
     }
 
 # ---------------------------------------------------------------------------
@@ -435,13 +473,13 @@ def calculate_kast_approx(player_name: str, kills: list, total_rounds: int) -> f
 
         if attacker == player_name or assister == player_name:
             kast_rounds.add(r)
-            
+
         if victim == player_name:
             death_rounds.add(r)
             # Trade detection: did attacker die in same round within 320 ticks?
             killer = attacker
             death_tick = k["tick"]
-            
+
             was_traded = False
             for k2 in kills:
                 if k2["round_num"] != r:
@@ -466,17 +504,17 @@ def calculate_hltv_rating_v2(stats: dict, kills: list, total_rounds: int) -> flo
         return 0.0
 
     r = float(total_rounds)
-    
+
     # Kill Rating
     kr = 0.679 * (stats["kills"] / r)
-    
+
     # Survival Rating
     sr = max(0.0, 0.317 * (1.0 - (stats["deaths"] / r)))
-    
+
     # KAST Rating
     kast_frac = stats["kast"] / 100.0
     kast = 0.7421 * kast_frac
-    
+
     # Impact Rating
     multikill_weight = (
         (stats["multi_kills_2k"] * 0.0021) +

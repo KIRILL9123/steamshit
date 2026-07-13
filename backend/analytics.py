@@ -896,3 +896,79 @@ def compute_aim_stats(match_id: int) -> dict[str, dict]:
         return aim_stats
     finally:
         conn.close()
+
+
+def compute_utility_stats(match_id: int) -> dict[str, dict]:
+    """Compute utility metrics (damage dealt/taken, smokes thrown, flash durations) per player."""
+    log.info(f"Computing utility stats for match {match_id}")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        # 1. Utility Damage Dealt / Taken
+        cur = conn.execute(
+            "SELECT attacker, SUM(hp_damage) as dealt FROM damages "
+            "WHERE match_id = ? AND weapon IN ('hegrenade', 'inferno', 'molotov') GROUP BY attacker",
+            (match_id,)
+        )
+        dealt_map = {r["attacker"]: r["dealt"] for r in cur.fetchall() if r["attacker"]}
+        
+        cur = conn.execute(
+            "SELECT victim, SUM(hp_damage) as taken FROM damages "
+            "WHERE match_id = ? AND weapon IN ('hegrenade', 'inferno', 'molotov') GROUP BY victim",
+            (match_id,)
+        )
+        taken_map = {r["victim"]: r["taken"] for r in cur.fetchall() if r["victim"]}
+        
+        # 2. Smokes thrown
+        cur = conn.execute(
+            "SELECT thrower, COUNT(*) as smokes FROM grenades "
+            "WHERE match_id = ? AND nade_type = 'smoke' GROUP BY thrower",
+            (match_id,)
+        )
+        smokes_map = {r["thrower"]: r["smokes"] for r in cur.fetchall() if r["thrower"]}
+        
+        # 3. Flash durations and counts from flash_events
+        cur = conn.execute(
+            "SELECT attacker, "
+            "SUM(CASE WHEN is_teammate = 0 THEN duration_seconds ELSE 0 END) as enemy_dur_sum, "
+            "SUM(CASE WHEN is_teammate = 1 THEN duration_seconds ELSE 0 END) as teammate_dur_sum, "
+            "SUM(CASE WHEN is_teammate = 0 THEN 1 ELSE 0 END) as enemy_flashes, "
+            "SUM(CASE WHEN is_teammate = 1 THEN 1 ELSE 0 END) as teammate_flashes "
+            "FROM flash_events WHERE match_id = ? GROUP BY attacker",
+            (match_id,)
+        )
+        flash_map = {}
+        for r in cur.fetchall():
+            if not r["attacker"]: continue
+            attacker = r["attacker"]
+            enemy_flashes = r["enemy_flashes"] or 0
+            teammate_flashes = r["teammate_flashes"] or 0
+            enemy_dur = (r["enemy_dur_sum"] / enemy_flashes) if enemy_flashes > 0 else 0.0
+            teammate_dur = (r["teammate_dur_sum"] / teammate_flashes) if teammate_flashes > 0 else 0.0
+            flash_map[attacker] = {
+                "enemy_dur": enemy_dur,
+                "teammate_dur": teammate_dur,
+                "enemy_flashes": enemy_flashes,
+                "teammate_flashes": teammate_flashes
+            }
+            
+        # Get all players
+        cur = conn.execute("SELECT player FROM player_match_stats WHERE match_id = ?", (match_id,))
+        players = [r["player"] for r in cur.fetchall()]
+        
+        utility_stats = {}
+        for p in players:
+            f = flash_map.get(p, {"enemy_dur": 0.0, "teammate_dur": 0.0, "enemy_flashes": 0, "teammate_flashes": 0})
+            utility_stats[p] = {
+                "utility_damage_dealt": dealt_map.get(p, 0.0),
+                "utility_damage_taken": taken_map.get(p, 0.0),
+                "smokes_thrown": smokes_map.get(p, 0),
+                "avg_enemy_flash_duration": f["enemy_dur"],
+                "avg_teammate_flash_duration": f["teammate_dur"],
+                "enemy_flashes_thrown": f["enemy_flashes"],
+                "teammate_flashes_thrown": f["teammate_flashes"]
+            }
+            
+        return utility_stats
+    finally:
+        conn.close()

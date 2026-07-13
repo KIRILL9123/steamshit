@@ -279,6 +279,40 @@ function teamColor(t: string | null | undefined): string {
         </BaseCard>
       </div>
 
+      <!-- ── Utility Stats Section ────────────────────────────────────── -->
+      <div class="mt-4">
+        <BaseCard title="Использование гранат (Utility)" subtitle="Урон от гранат и эффективность ослепления">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="text-xs uppercase tracking-wider text-fg-dim">
+                <tr>
+                  <th class="px-2 py-2 text-left">Игрок</th>
+                  <th class="px-2 py-2 text-right">Нанесённый урон</th>
+                  <th class="px-2 py-2 text-right">Полученный урон</th>
+                  <th class="px-2 py-2 text-right">Дым. гранаты</th>
+                  <th class="px-2 py-2 text-right">Слепота врагов</th>
+                  <th class="px-2 py-2 text-right">Слепота своих</th>
+                  <th class="px-2 py-2 text-right">Ослепил своих (раз)</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-border">
+                <tr v-for="s in stats" :key="s.player" class="hover:bg-bg-elev-2">
+                  <td class="px-2 py-2">
+                    <span :class="teamColor(s.team ?? undefined)">{{ s.player }}</span>
+                  </td>
+                  <td class="px-2 py-2 text-right font-mono">{{ fmt(s.utilityDamageDealt, 0) }} HP</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ fmt(s.utilityDamageTaken, 0) }} HP</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ s.smokesThrown }}</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ fmt(s.avgEnemyFlashDuration, 1) }} с</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ fmt(s.avgTeammateFlashDuration, 1) }} с</td>
+                  <td class="px-2 py-2 text-right font-mono" :class="s.teammateFlashesThrown > 0 ? 'text-danger' : 'text-fg-dim'">{{ s.teammateFlashesThrown }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </BaseCard>
+      </div>
+
       <p v-if="lastError" class="mt-3 text-sm text-danger">{{ lastError }}</p>
     </template>
   </PageContainer>

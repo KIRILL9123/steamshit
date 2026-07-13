@@ -261,32 +261,37 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
                 "hitgroup": HITGROUP_MAP.get(hg, str(hg))
             })
 
-    # 5. Grenades (Aggregating trails)
     grenades_list = []
     try:
         # Use demoparser2's parse_grenades() which returns the trail positions
         grenades_df = pl.from_pandas(parser.parse_grenades())
         if not grenades_df.is_empty():
-            # Group by entity_id (or entityid)
-            entity_col = "entity_id" if "entity_id" in grenades_df.columns else "entityid"
+            # Group by entity_id (or entityid, or grenade_entity_id)
+            entity_col = "grenade_entity_id" if "grenade_entity_id" in grenades_df.columns else ("entity_id" if "entity_id" in grenades_df.columns else "entityid")
+            x_col = "x" if "x" in grenades_df.columns else "X"
+            y_col = "y" if "y" in grenades_df.columns else "Y"
+            z_col = "z" if "z" in grenades_df.columns else "Z"
+            thrower_col = "name" if "name" in grenades_df.columns else ("thrower_name" if "thrower_name" in grenades_df.columns else "thrower")
+            type_col = "grenade_type" if "grenade_type" in grenades_df.columns else "nade_type"
+            
             grouped = grenades_df.sort([entity_col, "tick"]).group_by(entity_col, maintain_order=True).agg([
                 pl.col("tick").first().alias("throw_tick"),
                 pl.col("tick").last().alias("land_tick"),
-                pl.col("X").first().alias("throw_x"),
-                pl.col("Y").first().alias("throw_y"),
-                pl.col("Z").first().alias("throw_z"),
-                pl.col("X").last().alias("land_x"),
-                pl.col("Y").last().alias("land_y"),
-                pl.col("Z").last().alias("land_z"),
-                pl.col("thrower_name").first().alias("thrower_name") if "thrower_name" in grenades_df.columns else pl.col("thrower").first().alias("thrower_name"),
-                pl.col("grenade_type").first().alias("nade_type")
+                pl.col(x_col).first().alias("throw_x"),
+                pl.col(y_col).first().alias("throw_y"),
+                pl.col(z_col).first().alias("throw_z"),
+                pl.col(x_col).last().alias("land_x"),
+                pl.col(y_col).last().alias("land_y"),
+                pl.col(z_col).last().alias("land_z"),
+                pl.col(thrower_col).first().alias("thrower_name"),
+                pl.col(type_col).first().alias("nade_type")
             ])
 
             for row in grouped.to_dicts():
                 tt = row["throw_tick"]
                 lt = row["land_tick"]
                 dur = max(0, lt - tt)
-                nt = row["nade_type"].lower()
+                nt = row["nade_type"].lower() if row["nade_type"] else ""
 
                 # Normalise nade type name
                 if "smoke" in nt: nade_type = "smoke"
@@ -354,6 +359,27 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
                     "site": site,
                     "x": row.get("x", 0.0), "y": row.get("y", 0.0), "z": row.get("z", 0.0)
                 })
+
+    # 7.5 Flash Events (player_blind)
+    flash_list = []
+    if "player_blind" in avail_events:
+        try:
+            flash_df = pl.from_pandas(parser.parse_event("player_blind"))
+            for row in flash_df.to_dicts():
+                tick = row.get("tick", 0)
+                attacker = row.get("attacker_name") or "Unknown"
+                victim = row.get("user_name") or "Unknown"
+                duration = row.get("blind_duration") or 0.0
+                if duration > 0.0:
+                    flash_list.append({
+                        "round_num": get_round_num_for_tick(tick),
+                        "tick": tick,
+                        "attacker": attacker,
+                        "victim": victim,
+                        "duration": duration
+                    })
+        except Exception as e:
+            log.warning(f"Failed to parse player_blind events: {e}")
 
     # 8. Ticks (if requested)
     ticks_df = None
@@ -449,6 +475,7 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
         "grenades": grenades_list,
         "shots": shots_list,
         "bomb": bomb_list,
+        "flashes": flash_list,
         "ticks": [],
         "ticks_df": ticks_df
     }

@@ -132,6 +132,16 @@ CREATE TABLE IF NOT EXISTS bomb_events (
     x REAL, y REAL, z REAL
 );
 
+CREATE TABLE IF NOT EXISTS flash_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id        INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    round_id        INTEGER NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
+    tick            INTEGER NOT NULL,
+    attacker        TEXT NOT NULL,
+    victim          TEXT NOT NULL,
+    duration_seconds REAL NOT NULL,
+    is_teammate     BOOLEAN NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS player_match_stats (
     match_id        INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
@@ -163,6 +173,13 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     headshot_accuracy REAL DEFAULT 0,
     avg_ttk_ms      REAL DEFAULT 0,
     first_bullet_accuracy REAL DEFAULT 0,
+    utility_damage_dealt REAL DEFAULT 0,
+    utility_damage_taken REAL DEFAULT 0,
+    smokes_thrown   INTEGER DEFAULT 0,
+    avg_enemy_flash_duration REAL DEFAULT 0,
+    avg_teammate_flash_duration REAL DEFAULT 0,
+    enemy_flashes_thrown INTEGER DEFAULT 0,
+    teammate_flashes_thrown INTEGER DEFAULT 0,
     PRIMARY KEY (match_id, player)
 );
 
@@ -220,6 +237,7 @@ CREATE INDEX IF NOT EXISTS idx_fires_match    ON weapon_fires(match_id);
 CREATE INDEX IF NOT EXISTS idx_fires_round    ON weapon_fires(round_id);
 CREATE INDEX IF NOT EXISTS idx_fires_attacker ON weapon_fires(match_id, attacker);
 CREATE INDEX IF NOT EXISTS idx_bomb_round ON bomb_events(round_id);
+CREATE INDEX IF NOT EXISTS idx_flashes_round ON flash_events(round_id);
 CREATE INDEX IF NOT EXISTS idx_pms_match ON player_match_stats(match_id);
 CREATE INDEX IF NOT EXISTS idx_ac_match_player ON anticheat_flags(match_id, player);
 CREATE INDEX IF NOT EXISTS idx_ac_heuristic ON anticheat_flags(heuristic);
@@ -252,7 +270,14 @@ async def init_db():
             ("accuracy", "REAL DEFAULT 0"),
             ("headshot_accuracy", "REAL DEFAULT 0"),
             ("avg_ttk_ms", "REAL DEFAULT 0"),
-            ("first_bullet_accuracy", "REAL DEFAULT 0")
+            ("first_bullet_accuracy", "REAL DEFAULT 0"),
+            ("utility_damage_dealt", "REAL DEFAULT 0"),
+            ("utility_damage_taken", "REAL DEFAULT 0"),
+            ("smokes_thrown", "INTEGER DEFAULT 0"),
+            ("avg_enemy_flash_duration", "REAL DEFAULT 0"),
+            ("avg_teammate_flash_duration", "REAL DEFAULT 0"),
+            ("enemy_flashes_thrown", "INTEGER DEFAULT 0"),
+            ("teammate_flashes_thrown", "INTEGER DEFAULT 0")
         ]:
             try:
                 await conn.execute(f"ALTER TABLE player_match_stats ADD COLUMN {col} {col_type}")
@@ -683,6 +708,20 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
             )
         )
 
+    # 8.5 Insert flash events
+    player_teams = {p["name"]: p["team"].upper() for p in parsed_data["players"] if p.get("name") and p.get("team")}
+    for f in parsed_data.get("flashes", []):
+        round_id = round_id_map.get(f["round_num"])
+        if not round_id:
+            continue
+        team_a = player_teams.get(f["attacker"])
+        team_v = player_teams.get(f["victim"])
+        is_teammate = (team_a == team_v) if (team_a and team_v) else False
+        await conn.execute(
+            "INSERT INTO flash_events (match_id, round_id, tick, attacker, victim, duration_seconds, is_teammate) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (match_id, round_id, f["tick"], f["attacker"], f["victim"], f["duration"], is_teammate)
+        )
 
     # 10. Insert player stats overview
     from backend.parser import aggregate_player_stats
@@ -705,9 +744,11 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
 
     await conn.commit()
 
-    # Compute and update AIM metrics
+    # Compute and update AIM and UTILITY metrics
     try:
-        from backend.analytics import compute_aim_stats
+        from backend.analytics import compute_aim_stats, compute_utility_stats
+        
+        # 1. Update AIM stats
         aim_stats = compute_aim_stats(match_id)
         for player, stats_dict in aim_stats.items():
             await conn.execute(
@@ -722,10 +763,31 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
                     player
                 )
             )
+            
+        # 2. Update UTILITY stats
+        utility_stats = compute_utility_stats(match_id)
+        for player, stats_dict in utility_stats.items():
+            await conn.execute(
+                "UPDATE player_match_stats SET utility_damage_dealt = ?, utility_damage_taken = ?, smokes_thrown = ?, "
+                "avg_enemy_flash_duration = ?, avg_teammate_flash_duration = ?, "
+                "enemy_flashes_thrown = ?, teammate_flashes_thrown = ? "
+                "WHERE match_id = ? AND player = ?",
+                (
+                    stats_dict["utility_damage_dealt"],
+                    stats_dict["utility_damage_taken"],
+                    stats_dict["smokes_thrown"],
+                    stats_dict["avg_enemy_flash_duration"],
+                    stats_dict["avg_teammate_flash_duration"],
+                    stats_dict["enemy_flashes_thrown"],
+                    stats_dict["teammate_flashes_thrown"],
+                    match_id,
+                    player
+                )
+            )
         await conn.commit()
     except Exception as e:
         import logging
-        logging.getLogger("uvicorn.error").error(f"Failed to compute aim stats: {e}")
+        logging.getLogger("uvicorn.error").error(f"Failed to compute aim/utility stats: {e}")
 
     return match_id
 

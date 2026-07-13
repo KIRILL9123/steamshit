@@ -149,6 +149,13 @@ export interface PlayerMatchStats {
   headshotAccuracy: number;
   avgTtkMs: number;
   firstBulletAccuracy: number;
+  utilityDamageDealt: number;
+  utilityDamageTaken: number;
+  smokesThrown: number;
+  avgEnemyFlashDuration: number;
+  avgTeammateFlashDuration: number;
+  enemyFlashesThrown: number;
+  teammateFlashesThrown: number;
 }
 
 export type AnticheatHeuristic =

@@ -34,6 +34,7 @@ const matchItems = computed<NavItem[]>(() =>
         { to: `/match/${matchId.value}/utility`,   label: 'Утилиты',   icon: 'zap',           group: 'match', matchId: true },
         { to: `/match/${matchId.value}/anticheat`, label: 'Античит',   icon: 'shield-alert',  group: 'match', matchId: true },
         { to: `/match/${matchId.value}/coach`,     label: 'Коуч',      icon: 'brain',         group: 'match', matchId: true },
+        { to: `/match/${matchId.value}/highlights`, label: 'Хайлайты',   icon: 'video',         group: 'match', matchId: true },
       ]
     : []
 );

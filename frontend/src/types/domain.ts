@@ -263,3 +263,12 @@ export interface PlayerTrendStats {
   kd: number;
   accuracy: number;
 }
+
+export interface HighlightClip {
+  roundNum: number;
+  player: string;
+  type: string;
+  clipPath: string;
+  description: string;
+  createdAt: string;
+}

@@ -217,23 +217,20 @@
 
 ## 8. АВТОНАРЕЗКА ХАЙЛАЙТОВ В WEB UI
 
-* **Статус**: Частично
-* **Данные в схеме БД**:
-  * Все данные для вычисления таймингов хайлайтов присутствуют (`kills`, `rounds`, `player_match_stats`).
-  * Логика поиска хайлайтов (3K+, 4K+, 5K+ убийства в раунде) и нарезки видеофайлов через `ffmpeg` уже полностью реализована в [cli.py](file:///c:/Users/kyrylo/Documents/steamshit/backend/cli.py#L54-L186) в виде команды `highlights`.
-* **Чего не хватает**:
-  * Выделения логики нарезки из CLI в сервисный слой backend-приложения.
-  * Эндпоинтов API для запуска процесса.
-  * Элементов управления (кнопки, формы ввода пути к медиафайлу) в веб-интерфейсе.
-* **Технический подход**:
-  1. **Рефакторинг**: Перенести логику функции `highlights` из [cli.py](file:///c:/Users/kyrylo/Documents/steamshit/backend/cli.py) в отдельный файл `backend/services/highlights.py` с сигнатурой `async def get_highlights_metadata(match_id: int) -> list[dict]`.
-  2. **API Эндпоинты**:
-     * `GET /api/matches/{match_id}/highlights` — возвращает список найденных моментов с метаданными (раунд, игрок, тип хайлайта, тайминги старта и конца в тиках и секундах).
-     * `POST /api/matches/{match_id}/highlights/cut` — принимает путь к файлу полной записи матча (`.mp4`) на диске пользователя и список ID клипов для нарезки. Запускает `ffmpeg` в фоновом режиме через `FastAPI.BackgroundTasks`.
-  3. **UI Компонент**:
-     * На странице матча добавить вкладку "Хайлайты".
-     * Выводить список найденных игровых событий.
-     * Предусмотреть текстовое поле для ввода локального пути к видеозаписи матча на ПК пользователя (так как приложение ориентировано на локальный запуск) и кнопку "Нарезать клипы". По окончании процесса выводить уведомление со ссылкой на папку `output` с готовыми клипами.
+* **Статус**: Готово ✅
+* **Реализовано**:
+  * [`backend/highlights.py`](file:///c:/Users/kyrylo/Documents/steamshit/backend/highlights.py) — модуль с тремя функциями:
+    * `detect_highlights(match_id)` — находит мультикиллы (3K/4K/5K) по таблице `kills`, возвращает список событий с тиками и описанием
+    * `cut_highlight_clips(match_id, video_path)` — нарезает клипы через `ffmpeg`, сохраняет в `output/`, записывает в таблицу `highlight_clips`
+    * `get_highlight_clips(match_id)` — читает готовые клипы из БД
+  * Таблица `highlight_clips(id, match_id, round_num, player, type, clip_path, description, created_at)` добавлена в схему БД
+  * `GET /api/matches/{match_id}/highlights` — возвращает список готовых клипов
+  * `POST /api/matches/{match_id}/highlights` — принимает `video_path`, запускает нарезку через `FastAPI.BackgroundTasks`
+  * Папка `output/` монтируется как StaticFiles на маршруте `/output/` — клипы доступны напрямую браузеру
+  * [`frontend/src/views/Highlights.vue`](file:///c:/Users/kyrylo/Documents/steamshit/frontend/src/views/Highlights.vue) — страница с формой ввода пути к видео, кнопкой запуска, polling-обновлением и галереей клипов с HTML5 `<video>` плеерами и кнопкой скачивания
+  * Маршрут `/match/:id/highlights` добавлен в router и sidebar
+* **Валидация**:
+  * E2E тест подтверждён: синтетический 30-секундный mp4 → `cut_highlight_clips` → файл `147KB` в `output/` → запись в `highlight_clips` → API `GET /api/matches/12/highlights` возвращает корректный JSON
 
 ---
 

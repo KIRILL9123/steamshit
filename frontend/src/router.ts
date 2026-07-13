@@ -13,6 +13,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'utility',  name: 'utility',  component: () => import('@/views/Utility.vue'),  meta: { title: 'Утилиты' } },
       { path: 'anticheat',name: 'anticheat',component: () => import('@/views/Anticheat.vue'),meta: { title: 'Античит' } },
       { path: 'coach',    name: 'coach',    component: () => import('@/views/Coach.vue'),    meta: { title: 'Коуч' } },
+      { path: 'highlights', name: 'highlights', component: () => import('@/views/Highlights.vue'), meta: { title: 'Хайлайты' } },
     ],
   },
   { path: '/onboarding', name: 'onboarding', component: () => import('@/views/Onboarding.vue'), meta: { title: 'Добро пожаловать' } },

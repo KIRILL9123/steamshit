@@ -26,7 +26,7 @@ from backend.database import (
     set_setting,
 )
 from backend.parser import get_file_hash, parse_demo
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from watchfiles import Change, awatch
@@ -35,6 +35,11 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title="Fragscope CS2 Demo Analyzer API")
+
+# Mount output directory for highlight clips serving
+from fastapi.staticfiles import StaticFiles
+os.makedirs("output", exist_ok=True)
+app.mount("/output", StaticFiles(directory="output"), name="output")
 
 # Enable CORS for local development
 app.add_middleware(
@@ -351,3 +356,31 @@ async def get_player_map_stats_endpoint(player_name: str):
 async def get_player_trend_endpoint(player_name: str, limit: int = Query(20, ge=1, le=100)):
     from backend.cross_match import get_player_trend_stats
     return get_player_trend_stats(player_name, limit)
+
+
+class CutHighlightsRequest(BaseModel):
+    video_path: str
+
+
+@app.get("/api/matches/{match_id}/highlights")
+async def get_match_highlights_endpoint(match_id: int):
+    from backend.highlights import get_highlight_clips
+    return get_highlight_clips(match_id)
+
+
+@app.post("/api/matches/{match_id}/highlights")
+async def cut_match_highlights_endpoint(match_id: int, req: CutHighlightsRequest, background_tasks: BackgroundTasks):
+    from backend.highlights import cut_highlight_clips
+    
+    if not os.path.exists(req.video_path):
+        raise HTTPException(status_code=404, detail="Указанный видеофайл не найден")
+        
+    def cut_task():
+        try:
+            cut_highlight_clips(match_id, req.video_path)
+        except Exception as e:
+            import logging
+            logging.getLogger("uvicorn.error").error(f"Background highlights cut failed: {e}")
+            
+    background_tasks.add_task(cut_task)
+    return {"status": "processing"}

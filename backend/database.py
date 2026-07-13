@@ -2,8 +2,6 @@ import gzip
 import datetime
 import sqlite3
 import json
-import os
-from typing import Optional
 from contextlib import asynccontextmanager
 
 import aiosqlite
@@ -153,6 +151,17 @@ CREATE TABLE IF NOT EXISTS clutch_events (
     won             BOOLEAN NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS highlight_clips (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id        INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    round_num       INTEGER NOT NULL,
+    player          TEXT NOT NULL,
+    type            TEXT NOT NULL,
+    clip_path       TEXT NOT NULL,
+    description     TEXT NOT NULL,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS player_match_stats (
     match_id        INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
     player          TEXT NOT NULL,
@@ -254,6 +263,7 @@ CREATE INDEX IF NOT EXISTS idx_bomb_round ON bomb_events(round_id);
 CREATE INDEX IF NOT EXISTS idx_flashes_round ON flash_events(round_id);
 CREATE INDEX IF NOT EXISTS idx_clutch_match ON clutch_events(match_id);
 CREATE INDEX IF NOT EXISTS idx_clutch_round ON clutch_events(round_id);
+CREATE INDEX IF NOT EXISTS idx_highlights_match ON highlight_clips(match_id);
 CREATE INDEX IF NOT EXISTS idx_pms_match ON player_match_stats(match_id);
 CREATE INDEX IF NOT EXISTS idx_ac_match_player ON anticheat_flags(match_id, player);
 CREATE INDEX IF NOT EXISTS idx_ac_heuristic ON anticheat_flags(heuristic);
@@ -330,7 +340,7 @@ async def list_matches(conn: aiosqlite.Connection):
         return [_row_to_camel(r) for r in rows]
 
 async def get_match(conn: aiosqlite.Connection, match_id: int):
-    """Get match details including header, players, and stats."""
+    """Get match details including metadata, players, and stats."""
     async with conn.execute("SELECT * FROM matches WHERE id = ?", (match_id,)) as cursor:
         match_row = await cursor.fetchone()
         if not match_row:
@@ -354,7 +364,7 @@ async def get_match(conn: aiosqlite.Connection, match_id: int):
         clutches = await cursor.fetchall()
 
     return {
-        "header": _row_to_camel(match_row),
+        **_row_to_camel(match_row),
         "players": [_row_to_camel(p) for p in players],
         "stats": [_row_to_camel(s) for s in stats],
         "clutches": [_row_to_camel(c) for c in clutches]
@@ -872,5 +882,3 @@ def load_kills(db_path: str, match_id: int) -> pl.DataFrame:
         return pl.read_database(query, conn)
     finally:
         conn.close()
-
-

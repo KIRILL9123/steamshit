@@ -1,4 +1,4 @@
-import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats, PlayerMovementPoint, PlayerMapStats, PlayerTrendStats } from '@/types/domain';
+import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats, PlayerMovementPoint, PlayerMapStats, PlayerTrendStats, HighlightClip } from '@/types/domain';
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   try {
@@ -140,6 +140,18 @@ export const api = {
   },
   getPlayerTrendStats(playerName: string, limit = 20): Promise<PlayerTrendStats[]> {
     return call<PlayerTrendStats[]>(`/api/players/${encodeURIComponent(playerName)}/trend?limit=${limit}`);
+  },
+
+  // --- highlights ---
+  getHighlights(matchId: number): Promise<HighlightClip[]> {
+    return call<HighlightClip[]>(`/api/matches/${matchId}/highlights`);
+  },
+  cutHighlights(matchId: number, videoPath: string): Promise<{ status: string }> {
+    return call<{ status: string }>(`/api/matches/${matchId}/highlights`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ video_path: videoPath }),
+    });
   },
 
   // --- settings ---

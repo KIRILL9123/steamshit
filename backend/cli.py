@@ -1,6 +1,5 @@
 import asyncio
 import os
-import subprocess
 
 import typer
 from backend.analytics import generate_coach_tips, run_anticheat_analysis
@@ -104,41 +103,8 @@ def highlights(match_id: int, video: str = typer.Option(None, help="Path to vide
                     )
             console.print(table)
 
-            # Locate ticks for multi-kills (>= 3 kills in same round by same attacker)
-            round_attacker_kills = {}
-            for k in kill_rows:
-                rid = k["round_id"]
-                att = k["attacker"]
-                if rid not in round_attacker_kills:
-                    round_attacker_kills[rid] = {}
-                if att not in round_attacker_kills[rid]:
-                    round_attacker_kills[rid][att] = []
-                round_attacker_kills[rid][att].append(k)
-
-            highlights_found = []
-            for rid, att_kills in round_attacker_kills.items():
-                r_row = rounds_dict.get(rid)
-                if not r_row:
-                    continue
-                r_num = r_row["round_num"]
-
-                for att, kills_in_round in att_kills.items():
-                    cnt = len(kills_in_round)
-                    if cnt >= 3:
-                        # Multi-kill highlight!
-                        start_tick = kills_in_round[0]["tick"] - 320  # ~5 seconds before first kill
-                        end_tick = kills_in_round[-1]["tick"] + 320   # ~5 seconds after last kill
-
-                        description = f"{cnt}K round by {att}"
-                        highlights_found.append({
-                            "round_num": r_num,
-                            "player": att,
-                            "type": f"{cnt}K",
-                            "start_tick": start_tick,
-                            "end_tick": end_tick,
-                            "tick": kills_in_round[0]["tick"],
-                            "description": description
-                        })
+            from backend.highlights import detect_highlights, cut_highlight_clips
+            highlights_found = detect_highlights(match_id)
 
             if not highlights_found:
                 console.print("[yellow]No significant highlights found (no 3K/4K/5K rounds).[/yellow]")
@@ -154,34 +120,13 @@ def highlights(match_id: int, video: str = typer.Option(None, help="Path to vide
                     console.print(f"[red]Error: Video file '{video}' not found.[/red]")
                     return
 
-                os.makedirs("output", exist_ok=True)
-                tick_rate = match_row["tick_rate"] or 64
-
                 console.print(f"\n[cyan]Cutting clips from '{video}' using ffmpeg...[/cyan]")
-                for h in highlights_found:
-                    start_sec = max(0.0, float(h["start_tick"]) / tick_rate)
-                    duration = float(h["end_tick"] - h["start_tick"]) / tick_rate
-                    if duration <= 0:
-                        duration = 15.0  # default 15s
-
-                    clean_player = "".join(c for c in h["player"] if c.isalnum() or c in ("-", "_"))
-                    clip_filename = f"output/match_{match_id}_round_{h['round_num']}_{clean_player}_{h['type']}.mp4"
-
-                    console.print(f"Cutting Clip: Round {h['round_num']} for {h['player']} -> {clip_filename}")
-                    # Run ffmpeg command
-                    cmd = [
-                        "ffmpeg", "-y",
-                        "-ss", f"{start_sec:.2f}",
-                        "-i", video,
-                        "-t", f"{duration:.2f}",
-                        "-c", "copy",
-                        clip_filename
-                    ]
-                    try:
-                        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                        console.print(f"[green]Saved clip: {clip_filename}[/green]")
-                    except Exception as e:
-                        console.print(f"[red]Failed to cut clip: {e}[/red]")
+                try:
+                    cut_clips = cut_highlight_clips(match_id, video)
+                    for c in cut_clips:
+                        console.print(f"[green]Saved clip: {os.path.join('output', c['clip_path'])}[/green]")
+                except Exception as e:
+                    console.print(f"[red]Failed to cut clips: {e}[/red]")
 
     asyncio.run(get_highlights())
 

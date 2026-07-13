@@ -52,6 +52,7 @@ import {
   XCircle,
   XOctagon,
   Zap,
+  Video,
   type LucideIcon,
 } from 'lucide-vue-next';
 
@@ -108,6 +109,7 @@ const map: Record<string, LucideIcon> = {
   'x-circle': XCircle,
   'x-octagon': XOctagon,
   zap: Zap,
+  video: Video,
 };
 
 const component = computed(() => map[props.name] ?? Info);

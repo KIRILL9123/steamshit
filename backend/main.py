@@ -332,3 +332,22 @@ async def set_watch_folder(req: WatchSettingsRequest, db: aiosqlite.Connection =
     await set_setting(db, "watch_folder", req.watch_folder)
     await restart_watch_folder(req.watch_folder)
     return {"status": "success", "watch_folder": req.watch_folder}
+
+
+@app.get("/api/players")
+async def get_players_endpoint(db: aiosqlite.Connection = Depends(get_db)):
+    async with db.execute("SELECT DISTINCT player FROM player_match_stats WHERE player IS NOT NULL AND player != '' ORDER BY player ASC") as cursor:
+        rows = await cursor.fetchall()
+        return [r[0] for r in rows]
+
+
+@app.get("/api/players/{player_name}/map-stats")
+async def get_player_map_stats_endpoint(player_name: str):
+    from backend.cross_match import get_player_map_stats
+    return get_player_map_stats(player_name)
+
+
+@app.get("/api/players/{player_name}/trend")
+async def get_player_trend_endpoint(player_name: str, limit: int = Query(20, ge=1, le=100)):
+    from backend.cross_match import get_player_trend_stats
+    return get_player_trend_stats(player_name, limit)

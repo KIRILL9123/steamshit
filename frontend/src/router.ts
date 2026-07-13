@@ -3,6 +3,7 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/library' },
   { path: '/library', name: 'library', component: () => import('@/views/Library.vue'), meta: { title: 'Библиотека' } },
+  { path: '/progress', name: 'progress', component: () => import('@/views/Progress.vue'), meta: { title: 'Прогресс' } },
   { path: '/match/:id', component: () => import('@/views/MatchShell.vue'),
     children: [
       { path: '', redirect: (to) => `/match/${to.params.id}/overview` },

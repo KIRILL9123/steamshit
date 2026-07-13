@@ -20,6 +20,7 @@ const matchId = computed<string | null>(() => {
 
 const items: NavItem[] = [
   { to: '/library',   label: 'Библиотека',   icon: 'layers',     group: 'main' },
+  { to: '/progress',  label: 'Прогресс',     icon: 'line-chart', group: 'main' },
   { to: '/onboarding',label: 'Обучение',     icon: 'sparkles',   group: 'system' },
   { to: '/settings',  label: 'Настройки',    icon: 'settings',   group: 'system' },
 ];

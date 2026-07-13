@@ -1,4 +1,4 @@
-import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats, PlayerMovementPoint } from '@/types/domain';
+import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats, PlayerMovementPoint, PlayerMapStats, PlayerTrendStats } from '@/types/domain';
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   try {
@@ -128,6 +128,18 @@ export const api = {
   },
   getRoundMovement(roundId: number): Promise<PlayerMovementPoint[]> {
     return call<PlayerMovementPoint[]>(`/api/rounds/${roundId}/movement`);
+  },
+
+  getPlayers(): Promise<string[]> {
+    return call<string[]>('/api/players');
+  },
+
+  // --- career statistics ---
+  getPlayerMapStats(playerName: string): Promise<PlayerMapStats[]> {
+    return call<PlayerMapStats[]>(`/api/players/${encodeURIComponent(playerName)}/map-stats`);
+  },
+  getPlayerTrendStats(playerName: string, limit = 20): Promise<PlayerTrendStats[]> {
+    return call<PlayerTrendStats[]>(`/api/players/${encodeURIComponent(playerName)}/trend?limit=${limit}`);
   },
 
   // --- settings ---

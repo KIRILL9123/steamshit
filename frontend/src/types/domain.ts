@@ -241,3 +241,25 @@ export interface PlayerMovementPoint {
   health: number;
   is_alive: boolean;
 }
+
+export interface PlayerMapStats {
+  mapName: string;
+  matchesPlayed: number;
+  winRate: number;
+  avgAdr: number;
+  avgKd: number;
+  avgRating: number;
+  hsPercent: number;
+  winRateCt: number;
+  winRateT: number;
+}
+
+export interface PlayerTrendStats {
+  matchId: number;
+  date: string | null;
+  map: string;
+  adr: number;
+  rating: number;
+  kd: number;
+  accuracy: number;
+}

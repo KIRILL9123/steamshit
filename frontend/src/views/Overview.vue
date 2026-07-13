@@ -249,6 +249,36 @@ function teamColor(t: string | null | undefined): string {
         </BaseCard>
       </div>
 
+      <!-- ── Aim Stats Section ────────────────────────────────────────── -->
+      <div class="mt-4">
+        <BaseCard title="Анализ стрельбы (Aim)" subtitle="Точность, реакция и время до убийства">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="text-xs uppercase tracking-wider text-fg-dim">
+                <tr>
+                  <th class="px-2 py-2 text-left">Игрок</th>
+                  <th class="px-2 py-2 text-right">Общая точность</th>
+                  <th class="px-2 py-2 text-right">Точность в голову</th>
+                  <th class="px-2 py-2 text-right">Среднее TTK</th>
+                  <th class="px-2 py-2 text-right">Первая пуля</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-border">
+                <tr v-for="s in stats" :key="s.player" class="hover:bg-bg-elev-2">
+                  <td class="px-2 py-2">
+                    <span :class="teamColor(s.team ?? undefined)">{{ s.player }}</span>
+                  </td>
+                  <td class="px-2 py-2 text-right font-mono">{{ fmt(s.accuracy * 100, 1) }}%</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ fmt(s.headshotAccuracy * 100, 1) }}%</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ fmt(s.avgTtkMs, 0) }} мс</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ fmt(s.firstBulletAccuracy * 100, 1) }}%</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </BaseCard>
+      </div>
+
       <p v-if="lastError" class="mt-3 text-sm text-danger">{{ lastError }}</p>
     </template>
   </PageContainer>

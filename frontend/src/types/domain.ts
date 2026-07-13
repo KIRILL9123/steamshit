@@ -145,6 +145,10 @@ export interface PlayerMatchStats {
   flashAssists: number;
   firstBloods: number;
   mvpCount: number;
+  accuracy: number;
+  headshotAccuracy: number;
+  avgTtkMs: number;
+  firstBulletAccuracy: number;
 }
 
 export type AnticheatHeuristic =

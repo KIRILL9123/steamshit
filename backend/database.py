@@ -159,6 +159,10 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     flash_assists   INTEGER DEFAULT 0,
     first_bloods    INTEGER DEFAULT 0,
     mvp_count       INTEGER DEFAULT 0,
+    accuracy        REAL DEFAULT 0,
+    headshot_accuracy REAL DEFAULT 0,
+    avg_ttk_ms      REAL DEFAULT 0,
+    first_bullet_accuracy REAL DEFAULT 0,
     PRIMARY KEY (match_id, player)
 );
 
@@ -243,6 +247,18 @@ async def init_db():
     """Initialise the database and create tables/indices if they don't exist."""
     async with get_connection() as conn:
         await conn.executescript(SCHEMA_SQL)
+        # Migration: Add new columns to player_match_stats if they don't exist
+        for col, col_type in [
+            ("accuracy", "REAL DEFAULT 0"),
+            ("headshot_accuracy", "REAL DEFAULT 0"),
+            ("avg_ttk_ms", "REAL DEFAULT 0"),
+            ("first_bullet_accuracy", "REAL DEFAULT 0")
+        ]:
+            try:
+                await conn.execute(f"ALTER TABLE player_match_stats ADD COLUMN {col} {col_type}")
+            except sqlite3.OperationalError:
+                # Column already exists
+                pass
         await conn.commit()
 
 async def get_db():
@@ -688,6 +704,29 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
         )
 
     await conn.commit()
+
+    # Compute and update AIM metrics
+    try:
+        from backend.analytics import compute_aim_stats
+        aim_stats = compute_aim_stats(match_id)
+        for player, stats_dict in aim_stats.items():
+            await conn.execute(
+                "UPDATE player_match_stats SET accuracy = ?, headshot_accuracy = ?, avg_ttk_ms = ?, first_bullet_accuracy = ? "
+                "WHERE match_id = ? AND player = ?",
+                (
+                    stats_dict["accuracy"],
+                    stats_dict["headshot_accuracy"],
+                    stats_dict["avg_ttk_ms"],
+                    stats_dict["first_bullet_accuracy"],
+                    match_id,
+                    player
+                )
+            )
+        await conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn.error").error(f"Failed to compute aim stats: {e}")
+
     return match_id
 
 # ---------------------------------------------------------------------------

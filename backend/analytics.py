@@ -765,3 +765,134 @@ async def generate_coach_tips(match_id: int):
 
     log.info(f"Coach tips complete: {len(tips)} tips for match {match_id}")
     return tips
+
+
+def compute_aim_stats(match_id: int) -> dict[str, dict]:
+    """Compute accuracy, headshot_accuracy, avg_ttk_ms, and first_bullet_accuracy per player."""
+    log.info(f"Computing aim stats for match {match_id}")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        tick_rate = 64
+        non_shootable = {
+            'weapon_knife', 'weapon_knife_t', 'weapon_bayonet', 'weapon_hegrenade', 
+            'weapon_flashbang', 'weapon_smokegrenade', 'weapon_molotov', 'weapon_incgrenade', 
+            'weapon_decoy', 'weapon_taser', 'weapon_c4', 'weapon_bumpmine', 'weapon_breachcharge'
+        }
+        cur = conn.execute("SELECT round_id, tick, attacker, weapon FROM weapon_fires WHERE match_id = ?", (match_id,))
+        fires_list = [dict(r) for r in cur.fetchall()]
+        
+        # Load damages (hits)
+        non_shootable_dmg = {
+            'hegrenade', 'flashbang', 'smokegrenade', 'molotov', 'incgrenade', 'decoy', 
+            'knife', 'taser', 'inferno'
+        }
+        cur = conn.execute("SELECT round_id, tick, attacker, victim, weapon, hp_damage, hitgroup FROM damages WHERE match_id = ?", (match_id,))
+        damages_list = [dict(r) for r in cur.fetchall()]
+        
+        # Load kills
+        cur = conn.execute("SELECT round_id, tick, attacker, victim FROM kills WHERE match_id = ?", (match_id,))
+        kills_list = [dict(r) for r in cur.fetchall()]
+        
+        # We need a list of players
+        players = set()
+        for f in fires_list:
+            if f["attacker"]: players.add(f["attacker"])
+        for d in damages_list:
+            if d["attacker"]: players.add(d["attacker"])
+            if d["victim"]: players.add(d["victim"])
+        for k in kills_list:
+            if k["attacker"]: players.add(k["attacker"])
+            if k["victim"]: players.add(k["victim"])
+            
+        aim_stats = {}
+        for player in players:
+            aim_stats[player] = {
+                "accuracy": 0.0,
+                "headshot_accuracy": 0.0,
+                "avg_ttk_ms": 0.0,
+                "first_bullet_accuracy": 0.0
+            }
+            
+        # 1. Compute ACCURACY and HEADSHOT ACCURACY
+        for player in players:
+            player_shots = [
+                f for f in fires_list 
+                if f["attacker"] == player and f["weapon"] and f["weapon"].lower() not in non_shootable
+            ]
+            shots_count = len(player_shots)
+            
+            player_hits = [
+                d for d in damages_list 
+                if d["attacker"] == player and d["weapon"] and d["weapon"].lower() not in non_shootable_dmg
+            ]
+            hits_count = len(player_hits)
+            
+            accuracy = hits_count / shots_count if shots_count > 0 else 0.0
+            headshot_hits = [d for d in player_hits if d["hitgroup"] == "head"]
+            hs_accuracy = len(headshot_hits) / hits_count if hits_count > 0 else 0.0
+            
+            aim_stats[player]["accuracy"] = accuracy
+            aim_stats[player]["headshot_accuracy"] = hs_accuracy
+            
+        # 2. Compute TTK (Time to Kill)
+        for player in players:
+            player_kills = [k for k in kills_list if k["attacker"] == player]
+            ttk_values = []
+            
+            for kill in player_kills:
+                victim = kill["victim"]
+                round_id = kill["round_id"]
+                kill_tick = kill["tick"]
+                
+
+                duel_damages = [
+                    d for d in damages_list
+                    if d["attacker"] == player 
+                    and d["victim"] == victim 
+                    and d["round_id"] == round_id
+                    and kill_tick - 192 <= d["tick"] <= kill_tick
+                    and d["weapon"] and d["weapon"].lower() not in non_shootable_dmg
+                ]
+                
+                if duel_damages:
+                    first_damage_tick = min(d["tick"] for d in duel_damages)
+                    delta_ticks = kill_tick - first_damage_tick
+                    ttk_ms = (delta_ticks / tick_rate) * 1000.0
+                    ttk_values.append(ttk_ms)
+                    
+            avg_ttk = sum(ttk_values) / len(ttk_values) if ttk_values else 0.0
+            aim_stats[player]["avg_ttk_ms"] = avg_ttk
+            
+        # 3. Compute FIRST BULLET ACCURACY
+        for player in players:
+            player_shots = [
+                f for f in fires_list 
+                if f["attacker"] == player and f["weapon"] and f["weapon"].lower() not in non_shootable
+            ]
+            player_shots.sort(key=lambda x: x["tick"])
+            
+            burst_starts = []
+            last_tick = -9999
+            for shot in player_shots:
+                if shot["tick"] - last_tick > 45:
+                    burst_starts.append(shot["tick"])
+                last_tick = shot["tick"]
+                
+            player_hits_all = [
+                d for d in damages_list 
+                if d["attacker"] == player and d["weapon"] and d["weapon"].lower() not in non_shootable_dmg
+            ]
+            hit_ticks = {d["tick"] for d in player_hits_all}
+            
+            successful_first_bullets = 0
+            for start_tick in burst_starts:
+                if any(t in hit_ticks for t in (start_tick, start_tick + 1, start_tick + 2)):
+                    successful_first_bullets += 1
+                    
+            fba = successful_first_bullets / len(burst_starts) if burst_starts else 0.0
+            aim_stats[player]["first_bullet_accuracy"] = fba
+            
+        return aim_stats
+    finally:
+        conn.close()

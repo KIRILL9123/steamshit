@@ -157,6 +157,9 @@ export interface PlayerMatchStats {
   enemiesBlinded: number;
   teammatesBlinded: number;
   flashbangsThrown: number;
+  tradedDeaths: number;
+  tradeKills: number;
+  tradeRate: number;
 }
 
 export type AnticheatHeuristic =

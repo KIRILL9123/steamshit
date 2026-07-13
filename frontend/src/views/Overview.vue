@@ -216,6 +216,8 @@ function teamColor(t: string | null | undefined): string {
                   <th class="px-2 py-2 text-right">ADR</th>
                   <th class="px-2 py-2 text-right">HS%</th>
                   <th class="px-2 py-2 text-right">KAST</th>
+                  <th class="px-2 py-2 text-right">Размен (K)</th>
+                  <th class="px-2 py-2 text-right">Размен (%)</th>
                   <th class="px-2 py-2 text-right">Rating 2.0</th>
                 </tr>
               </thead>
@@ -230,6 +232,8 @@ function teamColor(t: string | null | undefined): string {
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.adr) }}</td>
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.hsPct) }}</td>
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.kast) }}</td>
+                  <td class="px-2 py-2 text-right font-mono" title="Разменов совершено (убийств в ответ на смерть тиммейта)">{{ s.tradeKills }}</td>
+                  <td class="px-2 py-2 text-right font-mono" :title="'Разменено ваших смертей: ' + s.tradedDeaths + ' из ' + s.deaths">{{ fmt(s.tradeRate * 100, 0) }}%</td>
                   <td class="px-2 py-2 text-right">
                     <span
                       class="rounded-sm px-1.5 py-0.5 font-mono"

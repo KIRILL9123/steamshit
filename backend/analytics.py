@@ -589,65 +589,36 @@ async def generate_coach_tips(match_id: int):
 
     # ------------------------------------------------------------------
     # 4. Low Trade Efficiency — умирает без трейда
-    # Логика: смерть "трейдована" если тиммейт убил врага в течение
-    #   320 тиков (~5 сек при 64 tick) после смерти игрока.
     # Порог: trade_rate < 30% при > 5 смертях
     # ------------------------------------------------------------------
     try:
-        # Строим таблицу смертей и убийств с командами
-        # Нам нужны колонки: round_id, tick, attacker, victim
-        if "attacker" in kills.columns and "victim" in kills.columns:
-            TRADE_WINDOW = 320  # тики
-
-            # Для каждого игрока считаем его смерти и пытаемся найти трейд
-            for player_name in kills["victim"].unique():
-                if not player_name:
-                    continue
-                player_deaths_df = kills.filter(kills["victim"] == player_name)
-                total_deaths = len(player_deaths_df)
-                if total_deaths < 5:
-                    continue
-
-                traded = 0
-                for death_row in player_deaths_df.iter_rows(named=True):
-                    death_tick = death_row["tick"] or 0
-                    death_rid = death_row["round_id"]
-                    killer = death_row["attacker"]
-
-                    # Тиммейт трейдует если в этом раунде после death_tick
-                    # кто-то (не сам player_name) убивает killer
-                    window_kills = kills.filter(
-                        (kills["round_id"] == death_rid) &
-                        (kills["attacker"] != player_name) &
-                        (kills["victim"] == killer) &
-                        (kills["tick"] >= death_tick) &
-                        (kills["tick"] <= death_tick + TRADE_WINDOW)
-                    )
-                    if len(window_kills) > 0:
-                        traded += 1
-
-                trade_rate = traded / total_deaths
-                if trade_rate < 0.3:
-                    tips.append({
-                        "player": player_name,
-                        "category": "teamplay",
-                        "priority": 6,
-                        "title": "Умираешь без трейда",
-                        "body": (
-                            f"Только {trade_rate * 100:.0f}% твоих смертей трейдуются тиммейтами. "
-                            "Занимай позиции рядом с союзниками — это и защита, и возможность "
-                            "для тиммейтов ответить на твою смерть."
-                        ),
-                        "metric_name": "trade_rate",
-                        "current_value": round(trade_rate * 100.0, 1),
-                        "target_value": 50.0,
-                        "evidence_json": json.dumps({
-                            "traded_deaths": traded,
-                            "total_deaths": total_deaths,
-                            "trade_rate": round(trade_rate, 3),
-                            "trade_window_ticks": TRADE_WINDOW,
-                        })
+        trade_stats = compute_trade_stats(match_id)
+        for player_name, data in trade_stats.items():
+            total_deaths = data["total_deaths"]
+            if total_deaths < 5:
+                continue
+            trade_rate = data["trade_rate"]
+            if trade_rate < 0.3:
+                tips.append({
+                    "player": player_name,
+                    "category": "teamplay",
+                    "priority": 6,
+                    "title": "Умираешь без трейда",
+                    "body": (
+                        f"Только {trade_rate * 100:.0f}% твоих смертей трейдуются тиммейтами. "
+                        "Занимай позиции рядом с союзниками — это и защита, и возможность "
+                        "для тиммейтов ответить на твою смерть."
+                    ),
+                    "metric_name": "trade_rate",
+                    "current_value": round(trade_rate * 100.0, 1),
+                    "target_value": 50.0,
+                    "evidence_json": json.dumps({
+                        "traded_deaths": data["traded_deaths"],
+                        "total_deaths": total_deaths,
+                        "trade_rate": round(trade_rate, 3),
+                        "trade_window_ticks": 320,
                     })
+                })
     except Exception as e:
         log.warning(f"low_trade_efficiency tip failed: {e}")
 
@@ -979,5 +950,65 @@ def compute_utility_stats(match_id: int) -> dict[str, dict]:
             }
             
         return utility_stats
+    finally:
+        conn.close()
+
+
+def compute_trade_stats(match_id: int) -> dict[str, dict]:
+    """Compute trade metrics (traded_deaths, trade_kills, trade_rate) per player."""
+    log.info(f"Computing trade stats for match {match_id}")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        # Load all kills in the match
+        cur = conn.execute(
+            "SELECT round_id, tick, attacker, victim FROM kills WHERE match_id = ? ORDER BY tick ASC",
+            (match_id,)
+        )
+        kills = [dict(r) for r in cur.fetchall()]
+        
+        # Load total deaths per player from player_match_stats
+        cur = conn.execute(
+            "SELECT player, deaths FROM player_match_stats WHERE match_id = ?",
+            (match_id,)
+        )
+        player_deaths = {r["player"]: r["deaths"] for r in cur.fetchall()}
+        
+        trade_stats = {}
+        for p, d in player_deaths.items():
+            trade_stats[p] = {
+                "traded_deaths": 0,
+                "trade_kills": 0,
+                "trade_rate": 0.0,
+                "total_deaths": d
+            }
+            
+        TRADE_WINDOW = 320
+        
+        for i, death in enumerate(kills):
+            victim = death["victim"]
+            killer = death["attacker"]
+            d_tick = death["tick"]
+            r_id = death["round_id"]
+            
+            if not victim or not killer:
+                continue
+                
+            for j in range(i + 1, len(kills)):
+                tr = kills[j]
+                if tr["round_id"] != r_id or tr["tick"] > d_tick + TRADE_WINDOW:
+                    break
+                if tr["victim"] == killer and tr["attacker"] != victim:
+                    trade_stats[victim]["traded_deaths"] += 1
+                    tr_attacker = tr["attacker"]
+                    if tr_attacker in trade_stats:
+                        trade_stats[tr_attacker]["trade_kills"] += 1
+                    break
+                    
+        for p, stats in trade_stats.items():
+            deaths_count = stats["total_deaths"]
+            stats["trade_rate"] = stats["traded_deaths"] / deaths_count if deaths_count > 0 else 0.0
+            
+        return trade_stats
     finally:
         conn.close()

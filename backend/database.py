@@ -181,6 +181,9 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     enemies_blinded INTEGER DEFAULT 0,
     teammates_blinded INTEGER DEFAULT 0,
     flashbangs_thrown INTEGER DEFAULT 0,
+    traded_deaths   INTEGER DEFAULT 0,
+    trade_kills     INTEGER DEFAULT 0,
+    trade_rate      REAL DEFAULT 0,
     PRIMARY KEY (match_id, player)
 );
 
@@ -279,7 +282,10 @@ async def init_db():
             ("avg_teammate_flash_duration", "REAL DEFAULT 0"),
             ("enemies_blinded", "INTEGER DEFAULT 0"),
             ("teammates_blinded", "INTEGER DEFAULT 0"),
-            ("flashbangs_thrown", "INTEGER DEFAULT 0")
+            ("flashbangs_thrown", "INTEGER DEFAULT 0"),
+            ("traded_deaths", "INTEGER DEFAULT 0"),
+            ("trade_kills", "INTEGER DEFAULT 0"),
+            ("trade_rate", "REAL DEFAULT 0")
         ]:
             try:
                 await conn.execute(f"ALTER TABLE player_match_stats ADD COLUMN {col} {col_type}")
@@ -748,7 +754,7 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
 
     # Compute and update AIM and UTILITY metrics
     try:
-        from backend.analytics import compute_aim_stats, compute_utility_stats
+        from backend.analytics import compute_aim_stats, compute_utility_stats, compute_trade_stats
         
         # 1. Update AIM stats
         aim_stats = compute_aim_stats(match_id)
@@ -783,6 +789,21 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
                     stats_dict["enemies_blinded"],
                     stats_dict["teammates_blinded"],
                     stats_dict["flashbangs_thrown"],
+                    match_id,
+                    player
+                )
+            )
+            
+        # 3. Update TRADE stats
+        trade_stats = compute_trade_stats(match_id)
+        for player, stats_dict in trade_stats.items():
+            await conn.execute(
+                "UPDATE player_match_stats SET traded_deaths = ?, trade_kills = ?, trade_rate = ? "
+                "WHERE match_id = ? AND player = ?",
+                (
+                    stats_dict["traded_deaths"],
+                    stats_dict["trade_kills"],
+                    stats_dict["trade_rate"],
                     match_id,
                     player
                 )

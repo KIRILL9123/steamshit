@@ -85,6 +85,14 @@ function fmt(n: number | null | undefined, digits = 1): string {
   return Number(n).toFixed(digits);
 }
 
+function formatDuration(ticks: number | null | undefined): string {
+  if (!ticks) return '—';
+  const totalSeconds = Math.round(ticks / 64);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
 function teamColor(t: string | null | undefined): string {
   if (!t) return '';
   if (t.toLowerCase() === 'ct') return 'text-ct';
@@ -120,6 +128,7 @@ function teamColor(t: string | null | undefined): string {
             <Icon name="map" :size="16" />
             <span class="font-mono">{{ header.mapName }}</span>
           </div>
+          <div class="text-[10px] uppercase tracking-wider text-fg-dim">карта</div>
         </BaseCard>
         <BaseCard padding="sm">
           <div class="text-fg">{{ header.demoType ?? '—' }}</div>
@@ -127,7 +136,7 @@ function teamColor(t: string | null | undefined): string {
         </BaseCard>
         <BaseCard padding="sm">
           <div class="text-fg font-mono">
-            {{ header.durationTicks ? `${Math.round(header.durationTicks / 64)} сек` : '—' }}
+            {{ formatDuration(header.durationTicks) }}
           </div>
           <div class="text-[10px] uppercase tracking-wider text-fg-dim">длительность</div>
         </BaseCard>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import PageContainer from '@/components/layout/PageContainer.vue';
@@ -9,7 +9,8 @@ import KdaBarChart from '@/components/charts/KdaBarChart.vue';
 import ScoreLineChart from '@/components/charts/ScoreLineChart.vue';
 import PlayerRadarChart from '@/components/charts/PlayerRadarChart.vue';
 import { useMatchesStore } from '@/stores/matches';
-import type { PlayerMatchStats } from '@/types/domain';
+import { api } from '@/api';
+import type { DistanceBucket, PlayerMatchStats, WeaponBreakdown } from '@/types/domain';
 
 const route = useRoute();
 const router = useRouter();
@@ -33,6 +34,40 @@ onBeforeUnmount(() => {
 const header = computed(() => detail.value);
 const stats = computed<PlayerMatchStats[]>(() => detail.value?.stats ?? []);
 const clutches = computed(() => detail.value?.clutches ?? []);
+const selectedPlayer = ref('');
+const weaponBreakdown = ref<WeaponBreakdown[]>([]);
+const distanceBuckets = ref<DistanceBucket[]>([]);
+const recordsLoading = ref(false);
+
+const selectedPlayerStats = computed(() =>
+  stats.value.find((player) => player.player === selectedPlayer.value) ?? null,
+);
+
+watch(stats, (players) => {
+  if (!players.some((player) => player.player === selectedPlayer.value)) {
+    selectedPlayer.value = players[0]?.player ?? '';
+  }
+});
+
+watch([matchId, selectedPlayer], async ([id, player]) => {
+  if (!Number.isFinite(id) || !player) {
+    weaponBreakdown.value = [];
+    distanceBuckets.value = [];
+    return;
+  }
+  recordsLoading.value = true;
+  try {
+    [weaponBreakdown.value, distanceBuckets.value] = await Promise.all([
+      api.getPlayerWeapons(id, player),
+      api.getPlayerDistanceBuckets(id, player),
+    ]);
+  } catch {
+    weaponBreakdown.value = [];
+    distanceBuckets.value = [];
+  } finally {
+    recordsLoading.value = false;
+  }
+});
 
 function playerClutchTooltip(playerName: string): string {
   const playerClutches = clutches.value.filter((c: any) => c.player === playerName);
@@ -80,6 +115,9 @@ const topFragger = computed(() => {
   return [...stats.value].sort((a, b) => b.kills - a.kills)[0];
 });
 
+// CS map scale: 16 Source/Hammer units per foot (0.01905 m per unit).
+const SOURCE_UNIT_TO_METERS = 0.01905;
+
 function fmt(n: number | null | undefined, digits = 1): string {
   if (n == null || Number.isNaN(n)) return '—';
   return Number(n).toFixed(digits);
@@ -91,6 +129,17 @@ function formatDuration(ticks: number | null | undefined): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function distanceMeters(distance: number | null | undefined): string {
+  if (!distance) return '—';
+  return `${(distance * SOURCE_UNIT_TO_METERS).toFixed(1)} м`;
+}
+
+function bucketLabel(bucket: DistanceBucket['bucket']): string {
+  if (bucket === 'close') return 'Ближняя · <500 u';
+  if (bucket === 'mid') return 'Средняя · 500–1499 u';
+  return 'Дальняя · ≥1500 u';
 }
 
 function teamColor(t: string | null | undefined): string {
@@ -238,6 +287,8 @@ function teamColor(t: string | null | undefined): string {
                   <th class="px-2 py-2 text-right">ADR</th>
                   <th class="px-2 py-2 text-right">HS%</th>
                   <th class="px-2 py-2 text-right">KAST</th>
+                  <th class="px-2 py-2 text-right">KPR</th>
+                  <th class="px-2 py-2 text-right">Самый дальний килл</th>
                   <th class="px-2 py-2 text-right">Размен (K)</th>
                   <th class="px-2 py-2 text-right">Размен (%)</th>
                   <th class="px-2 py-2 text-right">Клатчи</th>
@@ -255,6 +306,8 @@ function teamColor(t: string | null | undefined): string {
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.adr) }}</td>
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.hsPct) }}</td>
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.kast) }}</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ fmt(s.kpr, 2) }}</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ distanceMeters(s.longestKillDistance) }}</td>
                   <td class="px-2 py-2 text-right font-mono" title="Разменов совершено (убийств в ответ на смерть тиммейта)">{{ s.tradeKills }}</td>
                   <td class="px-2 py-2 text-right font-mono" :title="'Разменено ваших смертей: ' + s.tradedDeaths + ' из ' + s.deaths">{{ fmt(s.tradeRate * 100, 0) }}%</td>
                   <td class="px-2 py-2 text-right font-mono cursor-help" :title="playerClutchTooltip(s.player)">{{ s.clutchesTotal > 0 ? `${s.clutchesWon} / ${s.clutchesTotal}` : '—' }}</td>
@@ -273,6 +326,80 @@ function teamColor(t: string | null | undefined): string {
                 </tr>
               </tbody>
             </table>
+          </div>
+        </BaseCard>
+      </div>
+
+      <div class="mt-4">
+        <BaseCard title="Оружие и рекорды" subtitle="Разбивка убийств, дистанции и личные рекорды">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <span class="text-sm text-fg-muted">Игрок</span>
+            <select
+              v-model="selectedPlayer"
+              class="min-w-48 rounded border border-border bg-bg-elev-2 px-3 py-2 text-sm text-fg"
+            >
+              <option v-for="player in stats" :key="player.player" :value="player.player">
+                {{ player.player }}
+              </option>
+            </select>
+          </div>
+
+          <div v-if="recordsLoading" class="py-8 text-center text-sm text-fg-dim">Загрузка…</div>
+          <div v-else-if="selectedPlayerStats" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div class="overflow-x-auto rounded border border-border">
+              <table class="w-full text-sm">
+                <thead class="bg-bg-elev-2 text-xs uppercase tracking-wider text-fg-dim">
+                  <tr>
+                    <th class="px-3 py-2 text-left">Оружие</th>
+                    <th class="px-3 py-2 text-right">Убийства</th>
+                    <th class="px-3 py-2 text-right">В голову</th>
+                    <th class="px-3 py-2 text-right">HS%</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-border">
+                  <tr v-for="weapon in weaponBreakdown" :key="weapon.weapon">
+                    <td class="px-3 py-2 font-mono">{{ weapon.weapon }}</td>
+                    <td class="px-3 py-2 text-right font-mono">{{ weapon.kills }}</td>
+                    <td class="px-3 py-2 text-right font-mono">{{ weapon.headshots }}</td>
+                    <td class="px-3 py-2 text-right font-mono">{{ fmt(weapon.hsPercent) }}%</td>
+                  </tr>
+                  <tr v-if="weaponBreakdown.length === 0">
+                    <td colspan="4" class="px-3 py-8 text-center text-fg-dim">Нет данных об оружии.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="space-y-4">
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div class="rounded border border-border bg-bg-elev-2 p-3">
+                  <div class="text-[10px] uppercase tracking-wider text-fg-dim">KPR</div>
+                  <div class="mt-1 font-mono text-lg">{{ fmt(selectedPlayerStats.kpr, 2) }}</div>
+                </div>
+                <div class="rounded border border-border bg-bg-elev-2 p-3">
+                  <div class="text-[10px] uppercase tracking-wider text-fg-dim">Самый дальний килл</div>
+                  <div class="mt-1 font-mono text-lg">{{ distanceMeters(selectedPlayerStats.longestKillDistance) }}</div>
+                  <div class="text-xs text-fg-dim">{{ fmt(selectedPlayerStats.longestKillDistance, 0) }} units</div>
+                </div>
+                <div class="rounded border border-border bg-bg-elev-2 p-3">
+                  <div class="text-[10px] uppercase tracking-wider text-fg-dim">Макс. серия убийств</div>
+                  <div class="mt-1 font-mono text-lg">{{ selectedPlayerStats.maxKillstreak }}</div>
+                </div>
+              </div>
+
+              <div>
+                <div class="mb-2 text-xs uppercase tracking-wider text-fg-dim">Дистанции убийств</div>
+                <div v-for="bucket in distanceBuckets" :key="bucket.bucket" class="mb-3">
+                  <div class="mb-1 flex items-center justify-between gap-3 text-sm">
+                    <span>{{ bucketLabel(bucket.bucket) }}</span>
+                    <span class="font-mono text-fg-muted">{{ bucket.kills }} · {{ fmt(bucket.percent) }}%</span>
+                  </div>
+                  <div class="h-1.5 overflow-hidden rounded bg-bg-elev-3">
+                    <div class="h-full rounded bg-accent" :style="{ width: `${bucket.percent}%` }" />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </BaseCard>
       </div>

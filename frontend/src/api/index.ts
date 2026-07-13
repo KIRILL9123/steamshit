@@ -1,4 +1,4 @@
-import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats, PlayerMovementPoint, PlayerMapStats, PlayerTrendStats, HighlightClip } from '@/types/domain';
+import type { AppInfo, Match, MatchDetail, RoundProgression, Round, AnticheatFlag, CoachTip, UtilityStats, PlayerMovementPoint, PlayerMapStats, PlayerTrendStats, HighlightClip, WeaponBreakdown, DistanceBucket } from '@/types/domain';
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   try {
@@ -87,6 +87,12 @@ export const api = {
   },
   getUtilityThrows(id: number): Promise<UtilityStats[]> {
     return call<UtilityStats[]>(`/api/matches/${id}/utility_throws`);
+  },
+  getPlayerWeapons(matchId: number, player: string): Promise<WeaponBreakdown[]> {
+    return call<WeaponBreakdown[]>(`/api/matches/${matchId}/players/${encodeURIComponent(player)}/weapons`);
+  },
+  getPlayerDistanceBuckets(matchId: number, player: string): Promise<DistanceBucket[]> {
+    return call<DistanceBucket[]>(`/api/matches/${matchId}/players/${encodeURIComponent(player)}/distance-buckets`);
   },
 
   // --- anticheat ---

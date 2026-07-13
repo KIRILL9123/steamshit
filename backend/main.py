@@ -13,6 +13,8 @@ from backend.database import (
     get_db,
     get_heatmap_data,
     get_match,
+    get_player_distance_buckets,
+    get_player_weapon_breakdown,
     get_round_grenades,
     get_round_kills,
     get_round_movement,
@@ -230,6 +232,20 @@ async def get_round_progression_endpoint(match_id: int, db: aiosqlite.Connection
 @app.get("/api/matches/{match_id}/utility_throws")
 async def get_utility_throws_endpoint(match_id: int, db: aiosqlite.Connection = Depends(get_db)):
     return await get_utility_throws(db, match_id)
+
+
+@app.get("/api/matches/{match_id}/players/{player}/weapons")
+async def get_player_weapons_endpoint(
+    match_id: int, player: str, db: aiosqlite.Connection = Depends(get_db)
+):
+    return await get_player_weapon_breakdown(db, match_id, player)
+
+
+@app.get("/api/matches/{match_id}/players/{player}/distance-buckets")
+async def get_player_distance_buckets_endpoint(
+    match_id: int, player: str, db: aiosqlite.Connection = Depends(get_db)
+):
+    return await get_player_distance_buckets(db, match_id, player)
 
 @app.get("/api/matches/{match_id}/anticheat_flags")
 async def get_anticheat_flags_endpoint(match_id: int, db: aiosqlite.Connection = Depends(get_db)):

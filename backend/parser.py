@@ -592,7 +592,9 @@ def aggregate_player_stats(parsed_data: dict) -> list[dict]:
             "utility_enemies_flashed": 0,
             "flash_assists": 0,
             "first_bloods": 0,
-            "mvp_count": 0
+            "kpr": 0.0,
+            "longest_kill_distance": 0.0,
+            "max_killstreak": 0,
         }
 
     # Count kills, deaths, assists, headshots
@@ -603,6 +605,9 @@ def aggregate_player_stats(parsed_data: dict) -> list[dict]:
 
         if att in stats_map:
             stats_map[att]["kills"] += 1
+            stats_map[att]["longest_kill_distance"] = max(
+                stats_map[att]["longest_kill_distance"], float(k.get("distance") or 0.0)
+            )
             if k["headshot"]:
                 stats_map[att]["head_shots"] += 1
             if k["blind_kill"]:
@@ -613,6 +618,43 @@ def aggregate_player_stats(parsed_data: dict) -> list[dict]:
 
         if ast and ast in stats_map:
             stats_map[ast]["assists"] += 1
+
+    # Opening duel: the first valid player-vs-player kill in each round.
+    # first_bloods intentionally mirrors entry_kills; entry_deaths credits the victim.
+    opening_kills = {}
+    for k in kills:
+        attacker = k["attacker_name"]
+        victim = k["victim_name"]
+        if attacker not in stats_map or victim not in stats_map or attacker == victim:
+            continue
+        attacker_team = stats_map[attacker]["team"]
+        victim_team = stats_map[victim]["team"]
+        if attacker_team and victim_team and attacker_team == victim_team:
+            continue
+        round_num = k["round_num"]
+        current = opening_kills.get(round_num)
+        if current is None or k["tick"] < current["tick"]:
+            opening_kills[round_num] = k
+
+    for opening_kill in opening_kills.values():
+        attacker = opening_kill["attacker_name"]
+        victim = opening_kill["victim_name"]
+        stats_map[attacker]["entry_kills"] += 1
+        stats_map[attacker]["first_bloods"] += 1
+        stats_map[victim]["entry_deaths"] += 1
+
+    # Longest killstreak across the whole match: kills reset on the player's death.
+    current_streaks = {name: 0 for name in stats_map}
+    for k in sorted(kills, key=lambda event: event["tick"]):
+        attacker = k["attacker_name"]
+        victim = k["victim_name"]
+        if victim in current_streaks:
+            current_streaks[victim] = 0
+        if attacker in current_streaks and attacker != victim:
+            current_streaks[attacker] += 1
+            stats_map[attacker]["max_killstreak"] = max(
+                stats_map[attacker]["max_killstreak"], current_streaks[attacker]
+            )
 
     # Count damage
     for d in damages:
@@ -645,6 +687,7 @@ def aggregate_player_stats(parsed_data: dict) -> list[dict]:
     # Calculate final variables
     for name, stats in stats_map.items():
         stats["adr"] = (stats["damage"] / total_rounds) if total_rounds > 0 else 0.0
+        stats["kpr"] = (stats["kills"] / total_rounds) if total_rounds > 0 else 0.0
         stats["hs_pct"] = (stats["head_shots"] / stats["kills"] * 100.0) if stats["kills"] > 0 else 0.0
         stats["kast"] = calculate_kast_approx(name, kills, total_rounds)
         stats["rating"] = calculate_hltv_rating_v2(stats, kills, total_rounds)

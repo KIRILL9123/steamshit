@@ -3,12 +3,9 @@
  * Utility page — per-player smoke/flash/Molotov/HE impact.
  *
  * Data sources (no new backend command — reuses what Overview already pulls):
- *   • getMatch → player_match_stats  (utilityDamage, utilityEnemiesFlashed, flashAssists)
+ *   • getMatch → player_match_stats  (utilityDamageDealt, enemiesBlinded, flashAssists)
  *
- * Grenade throw counts per type would require a new Rust command; deferred
- * to a later week. Damage / enemies-flashed / flash-assists are the
- * three metrics that summarise utility impact and they live in
- * player_match_stats, so we use them here.
+ *   • getUtilityThrows → grenade counts by type.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -67,14 +64,14 @@ const text = useChartText(c);
 const totals = computed(() => {
   const src = filteredStats.value;
   return {
-    utilityDamage: src.reduce((s, p) => s + p.utilityDamage, 0),
-    enemiesFlashed: src.reduce((s, p) => s + p.utilityEnemiesFlashed, 0),
+    utilityDamage: src.reduce((s, p) => s + p.utilityDamageDealt, 0),
+    enemiesFlashed: src.reduce((s, p) => s + p.enemiesBlinded, 0),
     flashAssists: src.reduce((s, p) => s + p.flashAssists, 0),
   };
 });
 
 const sortedByUtility = computed(() =>
-  [...filteredStats.value].sort((a, b) => b.utilityDamage - a.utilityDamage),
+  [...filteredStats.value].sort((a, b) => b.utilityDamageDealt - a.utilityDamageDealt),
 );
 
 // Map the throws array into a dictionary for quick lookup by player name
@@ -147,7 +144,7 @@ const throwsBarOption = computed<EChartsOption>(() => {
 const utilityBarOption = computed<EChartsOption>(() => {
   const players = sortedByUtility.value;
   const labels = players.map((p) => p.player);
-  const dmg = players.map((p) => p.utilityDamage);
+  const dmg = players.map((p) => p.utilityDamageDealt);
   const max = Math.max(...dmg, 1);
 
   return {
@@ -208,10 +205,10 @@ const utilityBarOption = computed<EChartsOption>(() => {
 
 const flashBarOption = computed<EChartsOption>(() => {
   const players = [...filteredStats.value].sort(
-    (a, b) => b.utilityEnemiesFlashed + b.flashAssists * 5 - (a.utilityEnemiesFlashed + a.flashAssists * 5),
+    (a, b) => b.enemiesBlinded + b.flashAssists * 5 - (a.enemiesBlinded + a.flashAssists * 5),
   );
   const labels = players.map((p) => p.player);
-  const flashed = players.map((p) => p.utilityEnemiesFlashed);
+  const flashed = players.map((p) => p.enemiesBlinded);
   const assists = players.map((p) => p.flashAssists);
   const max = Math.max(...flashed, ...assists, 1);
 
@@ -437,8 +434,8 @@ function teamColor(t: Team | null): string {
                   {{ p.team ?? '—' }}
                 </span>
               </td>
-              <td class="px-4 py-2 text-right font-mono">{{ p.utilityDamage }}</td>
-              <td class="px-4 py-2 text-right font-mono">{{ p.utilityEnemiesFlashed }}</td>
+              <td class="px-4 py-2 text-right font-mono">{{ p.utilityDamageDealt }}</td>
+              <td class="px-4 py-2 text-right font-mono">{{ p.enemiesBlinded }}</td>
               <td class="px-4 py-2 text-right font-mono">{{ p.flashAssists }}</td>
               <td class="px-4 py-2 text-right font-mono text-fg-muted">{{ throwsByPlayer.get(p.player)?.he ?? 0 }}</td>
               <td class="px-4 py-2 text-right font-mono text-fg-muted">{{ throwsByPlayer.get(p.player)?.flash ?? 0 }}</td>
@@ -446,7 +443,7 @@ function teamColor(t: Team | null): string {
               <td class="px-4 py-2 text-right font-mono text-fg-muted">{{ throwsByPlayer.get(p.player)?.molly ?? 0 }}</td>
               <td class="px-4 py-2 text-right text-fg-muted">
                 {{ totals.utilityDamage > 0
-                  ? `${((p.utilityDamage / totals.utilityDamage) * 100).toFixed(0)}%`
+                  ? `${((p.utilityDamageDealt / totals.utilityDamage) * 100).toFixed(0)}%`
                   : '—' }}
               </td>
             </tr>

@@ -9,6 +9,7 @@ interface NavItem {
   icon: string;
   group: 'main' | 'match' | 'system';
   matchId?: boolean;
+  disabled?: boolean;
 }
 
 const route = useRoute();
@@ -34,7 +35,7 @@ const matchItems = computed<NavItem[]>(() =>
         { to: `/match/${matchId.value}/utility`,   label: 'Утилиты',   icon: 'zap',           group: 'match', matchId: true },
         { to: `/match/${matchId.value}/anticheat`, label: 'Античит',   icon: 'shield-alert',  group: 'match', matchId: true },
         { to: `/match/${matchId.value}/coach`,     label: 'Коуч',      icon: 'brain',         group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/highlights`, label: 'Хайлайты',   icon: 'video',         group: 'match', matchId: true },
+        { to: `/match/${matchId.value}/highlights`, label: 'Хайлайты · позже', icon: 'video', group: 'match', matchId: true, disabled: true },
       ]
     : []
 );
@@ -52,7 +53,16 @@ function isActive(to: string) {
           {{ label }}
         </div>
         <template v-for="item in items.concat(matchItems).filter((i) => i.group === key)" :key="item.to">
+          <div
+            v-if="item.disabled"
+            class="flex cursor-not-allowed items-center gap-2.5 rounded px-2 py-1.5 text-sm text-fg-dim opacity-60"
+            :title="'Раздел временно отключён'"
+          >
+            <Icon :name="item.icon" :size="15" />
+            <span class="truncate">{{ item.label }}</span>
+          </div>
           <RouterLink
+            v-else
             :to="item.to"
             class="group flex items-center gap-2.5 rounded px-2 py-1.5 text-sm transition-colors"
             :class="isActive(item.to)

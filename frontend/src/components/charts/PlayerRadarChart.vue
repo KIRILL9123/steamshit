@@ -84,7 +84,7 @@ const option = computed<EChartsOption>(() => {
             Number(p.kast.toFixed(1)),
             Number(p.adr.toFixed(1)),
             Number(p.hsPct.toFixed(1)),
-            Number((p.kills / Math.max(1, p.kills + p.deaths)).toFixed(2)) * 2, // rough KPR
+            p.kpr,
           ],
           areaStyle: {
             color: p.team === 'ct' ? c.ctArea : c.tArea,

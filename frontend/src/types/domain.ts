@@ -155,7 +155,6 @@ export interface PlayerMatchStats {
   utilityEnemiesFlashed: number;
   flashAssists: number;
   firstBloods: number;
-  mvpCount: number;
   accuracy: number;
   headshotAccuracy: number;
   avgTtkMs: number;
@@ -171,6 +170,24 @@ export interface PlayerMatchStats {
   tradedDeaths: number;
   tradeKills: number;
   tradeRate: number;
+  kpr: number;
+  longestKillDistance: number;
+  maxKillstreak: number;
+}
+
+export interface WeaponBreakdown {
+  weapon: string;
+  kills: number;
+  headshots: number;
+  hsPercent: number;
+}
+
+export interface DistanceBucket {
+  bucket: 'close' | 'mid' | 'long';
+  minDistance: number;
+  maxDistance: number | null;
+  kills: number;
+  percent: number;
 }
 
 export type AnticheatHeuristic =

@@ -65,6 +65,147 @@ def _load_weapon_fires(db_path: str, match_id: int) -> pl.DataFrame:
         conn.close()
 
 
+def recompute_opening_stats(match_id: int, db_path: str = DB_PATH) -> dict[str, dict]:
+    """Recompute opening duels and dependent ratings from persisted match data."""
+    from backend.parser import calculate_hltv_rating_v2
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        stats_rows = conn.execute(
+            "SELECT * FROM player_match_stats WHERE match_id = ?",
+            (match_id,),
+        ).fetchall()
+        players = {row["player"]: row["team"] for row in stats_rows}
+        total_rounds = conn.execute(
+            "SELECT COUNT(*) FROM rounds WHERE match_id = ?",
+            (match_id,),
+        ).fetchone()[0]
+
+        opening_by_round = {}
+        kill_rows = conn.execute(
+            "SELECT r.round_num, k.tick, k.id, k.attacker, k.victim "
+            "FROM kills k JOIN rounds r ON r.id = k.round_id "
+            "WHERE k.match_id = ? ORDER BY r.round_num, k.tick, k.id",
+            (match_id,),
+        ).fetchall()
+        for kill in kill_rows:
+            round_num = kill["round_num"]
+            if round_num in opening_by_round:
+                continue
+            attacker = kill["attacker"]
+            victim = kill["victim"]
+            if attacker not in players or victim not in players or attacker == victim:
+                continue
+            if players[attacker] and players[victim] and players[attacker] == players[victim]:
+                continue
+            opening_by_round[round_num] = (attacker, victim)
+
+        entry_kills = {player: 0 for player in players}
+        entry_deaths = {player: 0 for player in players}
+        for attacker, victim in opening_by_round.values():
+            entry_kills[attacker] += 1
+            entry_deaths[victim] += 1
+
+        changes = {}
+        for row in stats_rows:
+            player = row["player"]
+            stats = dict(row)
+            old_rating = float(stats["rating"] or 0.0)
+            stats["entry_kills"] = entry_kills[player]
+            stats["entry_deaths"] = entry_deaths[player]
+            stats["first_bloods"] = entry_kills[player]
+            new_rating = calculate_hltv_rating_v2(stats, [], total_rounds)
+            conn.execute(
+                "UPDATE player_match_stats "
+                "SET entry_kills = ?, entry_deaths = ?, first_bloods = ?, rating = ? "
+                "WHERE match_id = ? AND player = ?",
+                (
+                    stats["entry_kills"],
+                    stats["entry_deaths"],
+                    stats["first_bloods"],
+                    new_rating,
+                    match_id,
+                    player,
+                ),
+            )
+            changes[player] = {
+                "entry_kills": stats["entry_kills"],
+                "entry_deaths": stats["entry_deaths"],
+                "old_rating": old_rating,
+                "new_rating": new_rating,
+            }
+
+        conn.commit()
+        return changes
+    finally:
+        conn.close()
+
+
+def recompute_cheap_stats(match_id: int, db_path: str = DB_PATH) -> dict[str, dict]:
+    """Backfill KPR, longest kill distance, and max killstreak from persisted events."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        players = [
+            row["player"]
+            for row in conn.execute(
+                "SELECT player FROM player_match_stats WHERE match_id = ?",
+                (match_id,),
+            )
+        ]
+        total_rounds = conn.execute(
+            "SELECT COUNT(*) FROM rounds WHERE match_id = ?",
+            (match_id,),
+        ).fetchone()[0]
+        aggregates = {
+            row["attacker"]: row
+            for row in conn.execute(
+                "SELECT attacker, COUNT(*) AS kills, "
+                "COALESCE(MAX(CASE WHEN distance > 0 THEN distance END), 0) AS longest_kill_distance "
+                "FROM kills WHERE match_id = ? GROUP BY attacker",
+                (match_id,),
+            )
+        }
+
+        current_streaks = {player: 0 for player in players}
+        max_streaks = {player: 0 for player in players}
+        for event in conn.execute(
+            "SELECT attacker, victim FROM kills WHERE match_id = ? ORDER BY tick, id",
+            (match_id,),
+        ):
+            attacker = event["attacker"]
+            victim = event["victim"]
+            if victim in current_streaks:
+                current_streaks[victim] = 0
+            if attacker in current_streaks and attacker != victim:
+                current_streaks[attacker] += 1
+                max_streaks[attacker] = max(max_streaks[attacker], current_streaks[attacker])
+
+        result = {}
+        for player in players:
+            aggregate = aggregates.get(player)
+            kills = int(aggregate["kills"]) if aggregate else 0
+            longest = float(aggregate["longest_kill_distance"]) if aggregate else 0.0
+            kpr = kills / total_rounds if total_rounds else 0.0
+            conn.execute(
+                "UPDATE player_match_stats "
+                "SET kpr = ?, longest_kill_distance = ?, max_killstreak = ? "
+                "WHERE match_id = ? AND player = ?",
+                (kpr, longest, max_streaks[player], match_id, player),
+            )
+            result[player] = {
+                "kpr": kpr,
+                "longest_kill_distance": longest,
+                "max_killstreak": max_streaks[player],
+            }
+
+        conn.commit()
+        return result
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # ANTICHEAT
 # ---------------------------------------------------------------------------

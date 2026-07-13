@@ -187,7 +187,6 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     utility_enemies_flashed INTEGER DEFAULT 0,
     flash_assists   INTEGER DEFAULT 0,
     first_bloods    INTEGER DEFAULT 0,
-    mvp_count       INTEGER DEFAULT 0,
     accuracy        REAL DEFAULT 0,
     headshot_accuracy REAL DEFAULT 0,
     avg_ttk_ms      REAL DEFAULT 0,
@@ -203,6 +202,9 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     traded_deaths   INTEGER DEFAULT 0,
     trade_kills     INTEGER DEFAULT 0,
     trade_rate      REAL DEFAULT 0,
+    kpr             REAL DEFAULT 0,
+    longest_kill_distance REAL DEFAULT 0,
+    max_killstreak  INTEGER DEFAULT 0,
     PRIMARY KEY (match_id, player)
 );
 
@@ -307,13 +309,20 @@ async def init_db():
             ("flashbangs_thrown", "INTEGER DEFAULT 0"),
             ("traded_deaths", "INTEGER DEFAULT 0"),
             ("trade_kills", "INTEGER DEFAULT 0"),
-            ("trade_rate", "REAL DEFAULT 0")
+            ("trade_rate", "REAL DEFAULT 0"),
+            ("kpr", "REAL DEFAULT 0"),
+            ("longest_kill_distance", "REAL DEFAULT 0"),
+            ("max_killstreak", "INTEGER DEFAULT 0")
         ]:
             try:
                 await conn.execute(f"ALTER TABLE player_match_stats ADD COLUMN {col} {col_type}")
             except sqlite3.OperationalError:
                 # Column already exists
                 pass
+        async with conn.execute("PRAGMA table_info(player_match_stats)") as cursor:
+            columns = {row[1] for row in await cursor.fetchall()}
+        if "mvp_count" in columns:
+            await conn.execute("ALTER TABLE player_match_stats DROP COLUMN mvp_count")
         await conn.commit()
 
 async def get_db():
@@ -435,6 +444,50 @@ async def get_utility_throws(conn: aiosqlite.Connection, match_id: int):
             stats["decoy"] += count
 
     return list(stats_map.values())
+
+
+async def get_player_weapon_breakdown(
+    conn: aiosqlite.Connection, match_id: int, player: str
+):
+    """Aggregate kills and headshots by weapon using SQL GROUP BY."""
+    async with conn.execute(
+        "SELECT weapon, COUNT(*) AS kills, "
+        "SUM(CASE WHEN headshot = 1 THEN 1 ELSE 0 END) AS headshots, "
+        "ROUND(100.0 * SUM(CASE WHEN headshot = 1 THEN 1 ELSE 0 END) / COUNT(*), 1) AS hs_percent "
+        "FROM kills WHERE match_id = ? AND attacker = ? "
+        "GROUP BY weapon ORDER BY kills DESC, weapon ASC",
+        (match_id, player),
+    ) as cursor:
+        return [_row_to_camel(row) for row in await cursor.fetchall()]
+
+
+async def get_player_distance_buckets(
+    conn: aiosqlite.Connection, match_id: int, player: str
+):
+    """Aggregate measured kill distances into close, mid, and long buckets."""
+    async with conn.execute(
+        "SELECT CASE "
+        "WHEN distance < 500 THEN 'close' "
+        "WHEN distance < 1500 THEN 'mid' "
+        "ELSE 'long' END AS bucket, COUNT(*) AS kills "
+        "FROM kills WHERE match_id = ? AND attacker = ? AND distance > 0 "
+        "GROUP BY bucket",
+        (match_id, player),
+    ) as cursor:
+        counts = {row["bucket"]: row["kills"] for row in await cursor.fetchall()}
+
+    total = sum(counts.values())
+    definitions = [("close", 0, 500), ("mid", 500, 1500), ("long", 1500, None)]
+    return [
+        {
+            "bucket": bucket,
+            "minDistance": minimum,
+            "maxDistance": maximum,
+            "kills": counts.get(bucket, 0),
+            "percent": round(100.0 * counts.get(bucket, 0) / total, 1) if total else 0.0,
+        }
+        for bucket, minimum, maximum in definitions
+    ]
 
 async def get_heatmap_data(conn: aiosqlite.Connection, match_id: int, player: str = None):
     """Get kill coordinates for heatmaps."""
@@ -770,14 +823,14 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
             "INSERT OR REPLACE INTO player_match_stats (match_id, player, team, kills, deaths, assists, damage, "
             "adr, kast, rating, hs_pct, head_shots, multi_kills_2k, multi_kills_3k, multi_kills_4k, multi_kills_5k, "
             "clutches_won, clutches_total, entry_kills, entry_deaths, utility_damage, utility_enemies_flashed, "
-            "flash_assists, first_bloods, mvp_count) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "flash_assists, first_bloods, kpr, longest_kill_distance, max_killstreak) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 match_id, s["player"], s["team"], s["kills"], s["deaths"], s["assists"], s["damage"],
                 s["adr"], s["kast"], s["rating"], s["hs_pct"], s["head_shots"], s["multi_kills_2k"], s["multi_kills_3k"],
                 s["multi_kills_4k"], s["multi_kills_5k"], s["clutches_won"], s["clutches_total"], s["entry_kills"],
                 s["entry_deaths"], s["utility_damage"], s["utility_enemies_flashed"], s["flash_assists"],
-                s["first_bloods"], s["mvp_count"]
+                s["first_bloods"], s["kpr"], s["longest_kill_distance"], s["max_killstreak"]
             )
         )
 

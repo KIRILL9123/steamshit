@@ -11,6 +11,17 @@ import polars as pl
 
 DB_PATH = "fragscope.db"
 
+
+def _snake_to_camel(s: str) -> str:
+    """Convert snake_case column name to camelCase for the frontend."""
+    parts = s.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+def _row_to_camel(row) -> dict:
+    """Convert an aiosqlite.Row (or dict) to a camelCase dict."""
+    return {_snake_to_camel(k): v for k, v in dict(row).items()}
+
 # Schema creation SQL queries
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS matches (
@@ -255,7 +266,7 @@ async def list_matches(conn: aiosqlite.Connection):
         "SELECT * FROM matches ORDER BY match_date DESC NULLS LAST, parsed_at DESC"
     ) as cursor:
         rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
+        return [_row_to_camel(r) for r in rows]
 
 async def get_match(conn: aiosqlite.Connection, match_id: int):
     """Get match details including header, players, and stats."""
@@ -274,9 +285,9 @@ async def get_match(conn: aiosqlite.Connection, match_id: int):
         stats = await cursor.fetchall()
 
     return {
-        "header": dict(match_row),
-        "players": [dict(p) for p in players],
-        "stats": [dict(s) for s in stats]
+        "header": _row_to_camel(match_row),
+        "players": [_row_to_camel(p) for p in players],
+        "stats": [_row_to_camel(s) for s in stats]
     }
 
 async def delete_match(conn: aiosqlite.Connection, match_id: int):

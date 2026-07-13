@@ -178,8 +178,9 @@ CREATE TABLE IF NOT EXISTS player_match_stats (
     smokes_thrown   INTEGER DEFAULT 0,
     avg_enemy_flash_duration REAL DEFAULT 0,
     avg_teammate_flash_duration REAL DEFAULT 0,
-    enemy_flashes_thrown INTEGER DEFAULT 0,
-    teammate_flashes_thrown INTEGER DEFAULT 0,
+    enemies_blinded INTEGER DEFAULT 0,
+    teammates_blinded INTEGER DEFAULT 0,
+    flashbangs_thrown INTEGER DEFAULT 0,
     PRIMARY KEY (match_id, player)
 );
 
@@ -276,8 +277,9 @@ async def init_db():
             ("smokes_thrown", "INTEGER DEFAULT 0"),
             ("avg_enemy_flash_duration", "REAL DEFAULT 0"),
             ("avg_teammate_flash_duration", "REAL DEFAULT 0"),
-            ("enemy_flashes_thrown", "INTEGER DEFAULT 0"),
-            ("teammate_flashes_thrown", "INTEGER DEFAULT 0")
+            ("enemies_blinded", "INTEGER DEFAULT 0"),
+            ("teammates_blinded", "INTEGER DEFAULT 0"),
+            ("flashbangs_thrown", "INTEGER DEFAULT 0")
         ]:
             try:
                 await conn.execute(f"ALTER TABLE player_match_stats ADD COLUMN {col} {col_type}")
@@ -770,7 +772,7 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
             await conn.execute(
                 "UPDATE player_match_stats SET utility_damage_dealt = ?, utility_damage_taken = ?, smokes_thrown = ?, "
                 "avg_enemy_flash_duration = ?, avg_teammate_flash_duration = ?, "
-                "enemy_flashes_thrown = ?, teammate_flashes_thrown = ? "
+                "enemies_blinded = ?, teammates_blinded = ?, flashbangs_thrown = ? "
                 "WHERE match_id = ? AND player = ?",
                 (
                     stats_dict["utility_damage_dealt"],
@@ -778,8 +780,9 @@ async def insert_parsed_demo(conn: aiosqlite.Connection, parsed_data: dict, file
                     stats_dict["smokes_thrown"],
                     stats_dict["avg_enemy_flash_duration"],
                     stats_dict["avg_teammate_flash_duration"],
-                    stats_dict["enemy_flashes_thrown"],
-                    stats_dict["teammate_flashes_thrown"],
+                    stats_dict["enemies_blinded"],
+                    stats_dict["teammates_blinded"],
+                    stats_dict["flashbangs_thrown"],
                     match_id,
                     player
                 )

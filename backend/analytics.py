@@ -927,6 +927,14 @@ def compute_utility_stats(match_id: int) -> dict[str, dict]:
         )
         smokes_map = {r["thrower"]: r["smokes"] for r in cur.fetchall() if r["thrower"]}
         
+        # 2.5 Flashbangs thrown
+        cur = conn.execute(
+            "SELECT thrower, COUNT(*) as flashes FROM grenades "
+            "WHERE match_id = ? AND nade_type = 'flash' GROUP BY thrower",
+            (match_id,)
+        )
+        flashes_map = {r["thrower"]: r["flashes"] for r in cur.fetchall() if r["thrower"]}
+        
         # 3. Flash durations and counts from flash_events
         cur = conn.execute(
             "SELECT attacker, "
@@ -965,8 +973,9 @@ def compute_utility_stats(match_id: int) -> dict[str, dict]:
                 "smokes_thrown": smokes_map.get(p, 0),
                 "avg_enemy_flash_duration": f["enemy_dur"],
                 "avg_teammate_flash_duration": f["teammate_dur"],
-                "enemy_flashes_thrown": f["enemy_flashes"],
-                "teammate_flashes_thrown": f["teammate_flashes"]
+                "enemies_blinded": f["enemy_flashes"],
+                "teammates_blinded": f["teammate_flashes"],
+                "flashbangs_thrown": flashes_map.get(p, 0)
             }
             
         return utility_stats

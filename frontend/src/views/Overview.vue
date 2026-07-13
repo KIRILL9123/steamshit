@@ -290,9 +290,11 @@ function teamColor(t: string | null | undefined): string {
                   <th class="px-2 py-2 text-right">Нанесённый урон</th>
                   <th class="px-2 py-2 text-right">Полученный урон</th>
                   <th class="px-2 py-2 text-right">Дым. гранаты</th>
+                  <th class="px-2 py-2 text-right">Свет. гранаты</th>
+                  <th class="px-2 py-2 text-right">Ослепил врагов (раз)</th>
                   <th class="px-2 py-2 text-right">Слепота врагов</th>
-                  <th class="px-2 py-2 text-right">Слепота своих</th>
                   <th class="px-2 py-2 text-right">Ослепил своих (раз)</th>
+                  <th class="px-2 py-2 text-right">Слепота своих</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-border">
@@ -303,9 +305,11 @@ function teamColor(t: string | null | undefined): string {
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.utilityDamageDealt, 0) }} HP</td>
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.utilityDamageTaken, 0) }} HP</td>
                   <td class="px-2 py-2 text-right font-mono">{{ s.smokesThrown }}</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ s.flashbangsThrown }}</td>
+                  <td class="px-2 py-2 text-right font-mono">{{ s.enemiesBlinded }}</td>
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.avgEnemyFlashDuration, 1) }} с</td>
+                  <td class="px-2 py-2 text-right font-mono" :class="s.teammatesBlinded > 0 ? 'text-danger' : 'text-fg-dim'">{{ s.teammatesBlinded }}</td>
                   <td class="px-2 py-2 text-right font-mono">{{ fmt(s.avgTeammateFlashDuration, 1) }} с</td>
-                  <td class="px-2 py-2 text-right font-mono" :class="s.teammateFlashesThrown > 0 ? 'text-danger' : 'text-fg-dim'">{{ s.teammateFlashesThrown }}</td>
                 </tr>
               </tbody>
             </table>

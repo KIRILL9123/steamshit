@@ -6,12 +6,11 @@
 
 ## 1. АНИМИРОВАННЫЙ 2D REPLAY
 
-* **Статус**: Частично
+* **Статус**: Готово
 * **Данные в схеме БД**:
   * В таблице `rounds` в колонке `movement_data` (тип `BLOB`) хранятся сжатые с помощью `gzip` и сериализованные в `JSON` структуры данных, содержащие информацию о тиках (координаты `x`, `y`, `z`, угол взгляда `yaw`, здоровье `health`, флаг `is_alive`) игроков, полученные с частотой ~16 тик/сек (даунсемплинг в [parser.py](file:///c:/Users/kyrylo/Documents/steamshit/backend/parser.py#L370-L395)).
 * **Чего не хватает**:
-  * Со стороны БД данные полностью наличествуют.
-  * На фронтенде в [Replay.vue](file:///c:/Users/kyrylo/Documents/steamshit/frontend/src/views/Replay.vue) сейчас используется стандартный HTML5 Canvas API напрямую через `<canvas>` с ручной отрисовкой методом `drawScene()`. Konva.js (`vue-konva` и `konva`) добавлены в зависимости `package.json`, но фактически нигде в проекте не используются (мертвые зависимости).
+  * Реализовано (гладкая интерполяция движения и вектора взгляда игроков).
 * **Технический подход**:
   1. **Распаковка данных**: Backend уже имеет конечную точку `GET /api/rounds/{round_id}/movement` (см. [main.py](file:///c:/Users/kyrylo/Documents/steamshit/backend/main.py#L291-L293)), вызывающую `get_round_movement` в [database.py](file:///c:/Users/kyrylo/Documents/steamshit/backend/database.py#L459-L476), которая декомпрессирует gzip-блоб и отдаёт массив JSON на фронтенд.
   2. **Отрисовка и очистка зависимостей**: Продолжить отрисовку с использованием существующего Canvas API напрямую в [Replay.vue](file:///c:/Users/kyrylo/Documents/steamshit/frontend/src/views/Replay.vue), так как прямой рендеринг через контекст 2D полностью покрывает задачу, а внедрение Konva.js избыточно и усложнит структуру. Пакеты `konva` и `vue-konva` следует удалить из `package.json` как мёртвые зависимости.
@@ -30,7 +29,7 @@
 
 ## 2. AIM-МЕТРИКИ (TTK, accuracy, точность первой пули)
 
-* **Статус**: Отсутствует
+* **Статус**: Готово
 * **Данные в схеме БД**:
   * Таблица `weapon_fires`: содержит записи о каждом выстреле (`attacker`, `weapon`, `tick`).
   * Таблица `damages`: содержит записи о каждом попадании (`attacker`, `victim`, `hp_damage`, `hitgroup`, `tick`, `weapon`).
@@ -58,7 +57,7 @@
 
 ## 3. UTILITY-МЕТРИКИ (flash duration на врагов/тиммейтов, урон от HE/молотова)
 
-* **Статус**: Отсутствует
+* **Статус**: Готово
 * **Данные в схеме БД**:
   * Таблица `damages`: содержит колонку `weapon` с названиями гранат (`hegrenade`, `molotov`, `incgrenade`, `inferno`), что позволяет идентифицировать урон от утилити.
   * Таблица `player_match_stats` имеет поля `utility_damage` и `utility_enemies_flashed`, но при парсинге они жестко инициализируются в `0` (см. [parser.py](file:///c:/Users/kyrylo/Documents/steamshit/backend/parser.py#L564-L565)) и не рассчитываются.

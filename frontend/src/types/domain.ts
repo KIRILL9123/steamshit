@@ -154,8 +154,9 @@ export interface PlayerMatchStats {
   smokesThrown: number;
   avgEnemyFlashDuration: number;
   avgTeammateFlashDuration: number;
-  enemyFlashesThrown: number;
-  teammateFlashesThrown: number;
+  enemiesBlinded: number;
+  teammatesBlinded: number;
+  flashbangsThrown: number;
 }
 
 export type AnticheatHeuristic =

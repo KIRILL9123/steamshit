@@ -175,7 +175,7 @@ def parse_demo(demo_path: str, include_ticks: bool = False) -> dict:
                     if not match_end.is_empty():
                         w = match_end["winner"][0]
                         r = match_end["reason"][0]
-                        current_round["winner"] = TEAM_MAP.get(w, "Spectator")
+                        current_round["winner"] = w if w in ("T", "CT") else "Spectator"
                         current_round["reason"] = ROUND_END_REASON_MAP.get(r, str(r))
                 elif evt == "official_end":
                     current_round["official_end_tick"] = tick

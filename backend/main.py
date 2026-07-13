@@ -19,7 +19,7 @@ from backend.parser import parse_demo, get_file_hash
 from backend.analytics import run_anticheat_analysis, generate_coach_tips
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("backend.main")
+log = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title="Fragscope CS2 Demo Analyzer API")
 
@@ -35,10 +35,45 @@ app.add_middleware(
 watch_task: Optional[asyncio.Task] = None
 current_watch_path: Optional[str] = None
 
+async def scan_and_import_folder(path: str):
+    """Scan folder for any .dem or .dem.zst files and import them if not already in the database."""
+    log.info(f"Scanning watch folder for existing demos: {path}")
+    if not os.path.exists(path) or not os.path.isdir(path):
+        return
+    
+    try:
+        for filename in os.listdir(path):
+            if filename.endswith(".dem") or filename.endswith(".dem.zst"):
+                filepath = os.path.join(path, filename)
+                if os.path.isdir(filepath):
+                    continue
+                try:
+                    file_hash = get_file_hash(filepath)
+                    file_size = os.path.getsize(filepath)
+                    async with get_connection() as db:
+                        existing = await find_match_by_hash(db, file_hash)
+                        if existing:
+                            continue
+                        
+                        log.info(f"Auto-importing existing demo from scan: {filepath}")
+                        parsed_data = parse_demo(filepath, include_ticks=True)
+                        match_id = await insert_parsed_demo(db, parsed_data, filepath, file_hash, file_size)
+                        await run_anticheat_analysis(match_id)
+                        await generate_coach_tips(match_id)
+                        log.info(f"Auto-imported existing match ID: {match_id}")
+                except Exception as e:
+                    log.error(f"Error auto-importing existing demo {filepath}: {e}")
+    except Exception as e:
+        log.error(f"Error scanning watch folder {path}: {e}")
+
 async def watch_folder_loop(path: str):
     global current_watch_path
     current_watch_path = path
     log.info(f"Starting directory watcher for: {path}")
+    
+    # Run initial scan for existing demos
+    await scan_and_import_folder(path)
+    
     try:
         async for changes in awatch(path):
             for change_type, filepath in changes:

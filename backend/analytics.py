@@ -967,12 +967,14 @@ def compute_trade_stats(match_id: int) -> dict[str, dict]:
         )
         kills = [dict(r) for r in cur.fetchall()]
         
-        # Load total deaths per player from player_match_stats
+        # Load total deaths and teams per player from player_match_stats
         cur = conn.execute(
-            "SELECT player, deaths FROM player_match_stats WHERE match_id = ?",
+            "SELECT player, deaths, team FROM player_match_stats WHERE match_id = ?",
             (match_id,)
         )
-        player_deaths = {r["player"]: r["deaths"] for r in cur.fetchall()}
+        rows = cur.fetchall()
+        player_deaths = {r["player"]: r["deaths"] for r in rows}
+        player_teams = {r["player"]: r["team"].upper() for r in rows if r["player"] and r["team"]}
         
         trade_stats = {}
         for p, d in player_deaths.items():
@@ -999,11 +1001,15 @@ def compute_trade_stats(match_id: int) -> dict[str, dict]:
                 if tr["round_id"] != r_id or tr["tick"] > d_tick + TRADE_WINDOW:
                     break
                 if tr["victim"] == killer and tr["attacker"] != victim:
-                    trade_stats[victim]["traded_deaths"] += 1
-                    tr_attacker = tr["attacker"]
-                    if tr_attacker in trade_stats:
-                        trade_stats[tr_attacker]["trade_kills"] += 1
-                    break
+                    # Check if trade killer and victim are on the same team
+                    v_team = player_teams.get(victim)
+                    tr_team = player_teams.get(tr["attacker"])
+                    if v_team and tr_team and v_team == tr_team:
+                        trade_stats[victim]["traded_deaths"] += 1
+                        tr_attacker = tr["attacker"]
+                        if tr_attacker in trade_stats:
+                            trade_stats[tr_attacker]["trade_kills"] += 1
+                        break
                     
         for p, stats in trade_stats.items():
             deaths_count = stats["total_deaths"]

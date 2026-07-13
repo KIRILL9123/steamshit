@@ -73,19 +73,89 @@ const progressPct = computed(() =>
 );
 
 // Grouped player movements for the current tick
-const currentMovements = computed(() => {
-  if (!movements.value.length) return [];
-  const targetTick = roundStartTick.value + currentTick.value;
-  const playerPositions: Record<string, PlayerMovementPoint> = {};
+const groupedMovements = computed(() => {
+  const map: Record<string, PlayerMovementPoint[]> = {};
   for (const pt of movements.value) {
+    if (!map[pt.player]) {
+      map[pt.player] = [];
+    }
+    map[pt.player].push(pt);
+  }
+  for (const player in map) {
+    map[player].sort((a, b) => a.tick - b.tick);
+  }
+  return map;
+});
+
+function shortAngleDist(a0: number, a1: number): number {
+  const maxAngle = 360;
+  const difference = (a1 - a0) % maxAngle;
+  return ((2 * difference) % maxAngle) - difference;
+}
+
+function getInterpolatedPosition(playerMovementArray: PlayerMovementPoint[], targetTick: number) {
+  if (!playerMovementArray || playerMovementArray.length === 0) return null;
+  
+  let prev: PlayerMovementPoint | null = null;
+  let next: PlayerMovementPoint | null = null;
+  
+  for (let i = 0; i < playerMovementArray.length; i++) {
+    const pt = playerMovementArray[i];
     if (pt.tick <= targetTick) {
-      const existing = playerPositions[pt.player];
-      if (!existing || pt.tick > existing.tick) {
-        playerPositions[pt.player] = pt;
-      }
+      prev = pt;
+    } else {
+      next = pt;
+      break;
     }
   }
-  return Object.values(playerPositions);
+  
+  if (!prev) {
+    return playerMovementArray[0];
+  }
+  if (!next) {
+    return prev;
+  }
+  
+  const denom = next.tick - prev.tick;
+  if (denom === 0) return prev;
+  
+  const alpha = (targetTick - prev.tick) / denom;
+  
+  const px = prev.x !== null && next.x !== null ? prev.x + (next.x - prev.x) * alpha : prev.x;
+  const py = prev.y !== null && next.y !== null ? prev.y + (next.y - prev.y) * alpha : prev.y;
+  const pz = prev.z !== null && next.z !== null ? prev.z + (next.z - prev.z) * alpha : prev.z;
+  
+  let pyaw = prev.yaw;
+  if (prev.yaw !== null && next.yaw !== null) {
+    const diff = shortAngleDist(prev.yaw, next.yaw);
+    pyaw = (prev.yaw + diff * alpha) % 360;
+    if (pyaw < 0) pyaw += 360;
+  }
+  
+  return {
+    player: prev.player,
+    tick: targetTick,
+    x: px,
+    y: py,
+    z: pz,
+    yaw: pyaw,
+    health: prev.health,
+    is_alive: prev.is_alive
+  };
+}
+
+const currentMovements = computed(() => {
+  const players = Object.keys(groupedMovements.value);
+  if (players.length === 0) return [];
+  const targetTick = roundStartTick.value + currentTick.value;
+  const list: any[] = [];
+  for (const player of players) {
+    const pt = getInterpolatedPosition(groupedMovements.value[player], targetTick);
+    if (pt) {
+      list.push(pt);
+    }
+  }
+  return list;
 });
 
 // ── Canvas ref ───────────────────────────────────────────────────────────────
@@ -186,7 +256,7 @@ function seek(e: MouseEvent) {
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
   const clickX = e.clientX - rect.left;
   const pct = Math.max(0, Math.min(1, clickX / rect.width));
-  currentTick.value = Math.round(pct * totalTicks.value);
+  currentTick.value = pct * totalTicks.value;
   drawScene();
 }
 
@@ -389,6 +459,36 @@ function drawScene() {
     const py = ty(p.y);
 
     ctx.save();
+
+    // Draw direction arrow (yaw)
+    if (p.yaw != null) {
+      const rad = (p.yaw * Math.PI) / 180;
+      const dx_dir = Math.cos(rad);
+      const dy_dir = -Math.sin(rad);
+
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + dx_dir * 12, py + dy_dir * 12);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      const arrowSize = 4;
+      const angleLeft = rad + (135 * Math.PI) / 180;
+      const angleRight = rad - (135 * Math.PI) / 180;
+
+      const tipX = px + dx_dir * 12;
+      const tipY = py + dy_dir * 12;
+
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(tipX + Math.cos(angleLeft) * arrowSize, tipY - Math.sin(angleLeft) * arrowSize);
+      ctx.lineTo(tipX + Math.cos(angleRight) * arrowSize, tipY - Math.sin(angleRight) * arrowSize);
+      ctx.closePath();
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+    }
+
     ctx.beginPath();
     ctx.arc(px, py, 5.5, 0, Math.PI * 2);
 

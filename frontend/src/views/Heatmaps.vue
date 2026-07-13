@@ -7,6 +7,7 @@ import BaseCard from '@/components/ui/BaseCard.vue';
 import Icon from '@/components/ui/Icon.vue';
 import { api, type HeatmapPoint } from '@/api/index';
 import { useMatchesStore } from '@/stores/matches';
+import { MAP_METADATA } from '@/constants/maps';
 
 const route = useRoute();
 const matchId = computed(() => Number(route.params.id));
@@ -20,6 +21,34 @@ const error = ref<string | null>(null);
 const points = ref<HeatmapPoint[]>([]);
 const selectedPlayer = ref<string>('all');
 const selectedKind = ref<'all' | 'kill_attacker' | 'kill_victim'>('all');
+
+// Map image preloading
+const mapImage = ref<HTMLImageElement | null>(null);
+const mapImageLoaded = ref(false);
+
+watch(() => detail.value?.mapName, (newMapName) => {
+  if (newMapName && MAP_METADATA[newMapName]) {
+    const meta = MAP_METADATA[newMapName];
+    const img = new Image();
+    img.src = meta.radarUrl;
+    img.crossOrigin = 'anonymous';
+    mapImageLoaded.value = false;
+    img.onload = () => {
+      mapImage.value = img;
+      mapImageLoaded.value = true;
+      drawHeatmap();
+    };
+    img.onerror = () => {
+      mapImage.value = null;
+      mapImageLoaded.value = false;
+      drawHeatmap();
+    };
+  } else {
+    mapImage.value = null;
+    mapImageLoaded.value = false;
+    drawHeatmap();
+  }
+}, { immediate: true });
 
 const players = computed<string[]>(() => {
   if (!detail.value?.players) return [];
@@ -123,7 +152,7 @@ function drawHeatmap() {
     return;
   }
 
-  // Coordinate mapping
+  // Coordinate mapping fallback values
   const xs = filtered.map((p) => p.x);
   const ys = filtered.map((p) => p.y);
   const minX = Math.min(...xs);
@@ -135,8 +164,44 @@ function drawHeatmap() {
   const pad = 28;
   const dW = W - pad * 2;
   const dH = H - pad * 2;
-  const toX = (x: number) => pad + ((x - minX) / rangeX) * dW;
-  const toY = (y: number) => pad + ((maxY - y) / rangeY) * dH; // flip Y axis
+
+  let toX = (x: number) => pad + ((x - minX) / rangeX) * dW;
+  let toY = (y: number) => pad + ((maxY - y) / rangeY) * dH; // flip Y axis
+
+  const mapName = detail.value?.mapName;
+  const metadata = mapName ? MAP_METADATA[mapName] : null;
+  let mapDrawSize = 0;
+  let mapOffsetX = 0;
+
+  if (metadata && mapImage.value && mapImageLoaded.value) {
+    mapDrawSize = Math.min(W, H);
+    mapOffsetX = (W - mapDrawSize) / 2;
+    const offsetY = (H - mapDrawSize) / 2;
+
+    // Draw background map
+    ctx.drawImage(mapImage.value, mapOffsetX, offsetY, mapDrawSize, mapDrawSize);
+
+    // Override coordinate projection
+    toX = (x: number) => {
+      const pxX = (x - metadata.posX) / metadata.scale;
+      return mapOffsetX + (pxX / 1024) * mapDrawSize;
+    };
+    toY = (y: number) => {
+      const pxY = (metadata.posY - y) / metadata.scale;
+      return offsetY + (pxY / 1024) * mapDrawSize;
+    };
+  } else {
+    // Fallback Background grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    const gs = 50;
+    for (let x = 0; x < W; x += gs) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for (let y = 0; y < H; y += gs) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+  }
 
   // ── Pass 1: Glow blobs (additive blending) ──────────────────────────────
   ctx.save();
@@ -176,7 +241,9 @@ function drawHeatmap() {
   ctx.font = '10px Inter, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'bottom';
-  ctx.fillText(`${filtered.length} точек`, pad, H - 6);
+  
+  const textX = mapDrawSize > 0 ? mapOffsetX + pad : pad;
+  ctx.fillText(`${filtered.length} точек`, textX, H - 6);
 }
 
 // ResizeObserver so canvas redraws on panel resize

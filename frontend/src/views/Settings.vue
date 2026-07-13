@@ -10,16 +10,24 @@ const ping = ref<string>('');
 
 // Watch folder state
 const watchFolder = ref('');
+const suggestedFolder = ref('');
 const isSaving = ref(false);
 const saveError = ref('');
 const saveSuccess = ref('');
 
 async function loadWatchFolder() {
   try {
-    const path = await api.getWatchFolder();
-    watchFolder.value = path || '';
+    const res = await api.getWatchFolder();
+    watchFolder.value = res.watch_folder || '';
+    suggestedFolder.value = res.suggested_folder || '';
   } catch (e) {
     console.error('Ошибка загрузки папки авто-импорта:', e);
+  }
+}
+
+function useSuggestedFolder() {
+  if (suggestedFolder.value) {
+    watchFolder.value = suggestedFolder.value;
   }
 }
 
@@ -109,6 +117,15 @@ onMounted(async () => {
                 {{ isSaving ? 'Сохранение...' : 'Сохранить' }}
               </button>
             </div>
+            <p v-if="suggestedFolder && watchFolder !== suggestedFolder" class="text-xs text-fg-dim mt-1.5">
+              Найдена стандартная папка демок CS2: 
+              <button 
+                class="text-accent underline hover:text-accent-hover transition-colors font-medium ml-1"
+                @click="useSuggestedFolder"
+              >
+                {{ suggestedFolder }}
+              </button>
+            </p>
             <p v-if="saveError" class="text-sm text-danger mt-1">{{ saveError }}</p>
             <p v-if="saveSuccess" class="text-sm text-success mt-1">{{ saveSuccess }}</p>
           </div>

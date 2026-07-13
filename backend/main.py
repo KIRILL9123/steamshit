@@ -237,10 +237,36 @@ async def get_round_kills_endpoint(round_id: int, db: aiosqlite.Connection = Dep
 async def get_round_grenades_endpoint(round_id: int, db: aiosqlite.Connection = Depends(get_db)):
     return await get_round_grenades(db, round_id)
 
+def autodetect_cs2_demos_path() -> Optional[str]:
+    """Search for the standard CS2 replays directory in Steam installations."""
+    if os.name == "nt":
+        import winreg
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam")
+            steam_path, _ = winreg.QueryValueEx(key, "InstallPath")
+            winreg.CloseKey(key)
+            if steam_path:
+                candidate = os.path.join(steam_path, "steamapps", "common", "Counter-Strike Global Offensive", "game", "csgo", "replays")
+                if os.path.exists(candidate) and os.path.isdir(candidate):
+                    return candidate
+        except Exception:
+            pass
+
+    # Common default locations
+    default_paths = [
+        r"C:\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\replays",
+        r"C:\Program Files\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\replays",
+    ]
+    for p in default_paths:
+        if os.path.exists(p) and os.path.isdir(p):
+            return p
+    return None
+
 @app.get("/api/settings/watch_folder")
 async def get_watch_folder(db: aiosqlite.Connection = Depends(get_db)):
     path = await get_setting(db, "watch_folder")
-    return {"watch_folder": path}
+    suggested = autodetect_cs2_demos_path()
+    return {"watch_folder": path, "suggested_folder": suggested}
 
 @app.post("/api/settings/watch_folder")
 async def set_watch_folder(req: WatchSettingsRequest, db: aiosqlite.Connection = Depends(get_db)):

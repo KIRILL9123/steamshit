@@ -8,6 +8,7 @@ import Icon from '@/components/ui/Icon.vue';
 import { api, type RoundKillEvent, type RoundGrenadeEvent } from '@/api/index';
 import { useMatchesStore } from '@/stores/matches';
 import type { Round } from '@/types/domain';
+import { MAP_METADATA } from '@/constants/maps';
 
 const route = useRoute();
 const matchId = computed(() => Number(route.params.id));
@@ -22,6 +23,34 @@ const kills = ref<RoundKillEvent[]>([]);
 const grenades = ref<RoundGrenadeEvent[]>([]);
 const loading = ref(false);
 const error = ref<string | null>(null);
+
+// Map image preloading
+const mapImage = ref<HTMLImageElement | null>(null);
+const mapImageLoaded = ref(false);
+
+watch(() => detail.value?.mapName, (newMapName) => {
+  if (newMapName && MAP_METADATA[newMapName]) {
+    const meta = MAP_METADATA[newMapName];
+    const img = new Image();
+    img.src = meta.radarUrl;
+    img.crossOrigin = 'anonymous';
+    mapImageLoaded.value = false;
+    img.onload = () => {
+      mapImage.value = img;
+      mapImageLoaded.value = true;
+      drawScene();
+    };
+    img.onerror = () => {
+      mapImage.value = null;
+      mapImageLoaded.value = false;
+      drawScene();
+    };
+  } else {
+    mapImage.value = null;
+    mapImageLoaded.value = false;
+    drawScene();
+  }
+}, { immediate: true });
 
 // Playback
 const playing = ref(false);
@@ -98,10 +127,7 @@ function startPlay() {
 
 function stopPlay() {
   playing.value = false;
-  if (animId !== null) {
-    cancelAnimationFrame(animId);
-    animId = null;
-  }
+  if (animId) cancelAnimationFrame(animId);
 }
 
 function togglePlay() {
@@ -111,19 +137,23 @@ function togglePlay() {
 
 function tickFn(ts: number) {
   if (!playing.value) return;
-  if (lastTs === null) lastTs = ts;
-  const dt = (ts - lastTs) / 1000;
-  lastTs = ts;
-  currentTick.value = Math.min(
-    currentTick.value + Math.round(dt * TICKS_PER_SEC * playbackSpeed.value),
-    totalTicks.value
-  );
-  drawScene();
-  if (currentTick.value >= totalTicks.value) {
-    stopPlay();
+  if (lastTs === null) {
+    lastTs = ts;
+    animId = requestAnimationFrame(tickFn);
     return;
   }
-  animId = requestAnimationFrame(tickFn);
+
+  const dt = (ts - lastTs) / 1000;
+  lastTs = ts;
+
+  currentTick.value += dt * TICKS_PER_SEC * playbackSpeed.value;
+  if (currentTick.value >= totalTicks.value) {
+    currentTick.value = totalTicks.value;
+    stopPlay();
+  } else {
+    animId = requestAnimationFrame(tickFn);
+  }
+  drawScene();
 }
 
 function resetPlay() {
@@ -133,10 +163,10 @@ function resetPlay() {
 }
 
 function seek(e: MouseEvent) {
-  const el = e.currentTarget as HTMLElement;
-  const rect = el.getBoundingClientRect();
-  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  currentTick.value = Math.round(ratio * totalTicks.value);
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  const pct = Math.max(0, Math.min(1, clickX / rect.width));
+  currentTick.value = Math.round(pct * totalTicks.value);
   drawScene();
 }
 
@@ -163,18 +193,7 @@ function drawScene() {
 
   const absTick = roundStartTick.value + currentTick.value;
 
-  // Background grid
-  ctx.strokeStyle = 'rgba(255,255,255,0.035)';
-  ctx.lineWidth = 1;
-  const gs = 48;
-  for (let x = 0; x < W; x += gs) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-  }
-  for (let y = 0; y < H; y += gs) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-  }
-
-  // Gather all positions for bounds
+  // Gather all positions for bounds fallback
   const allXs: number[] = [];
   const allYs: number[] = [];
   for (const k of kills.value) {
@@ -225,8 +244,42 @@ function drawScene() {
   const rangeY = maxY - minY || 1;
   const dW = W - pad * 2;
   const dH = H - pad * 2;
-  const tx = (x: number) => pad + ((x - minX) / rangeX) * dW;
-  const ty = (y: number) => pad + ((maxY - y) / rangeY) * dH;
+
+  let tx = (x: number) => pad + ((x - minX) / rangeX) * dW;
+  let ty = (y: number) => pad + ((maxY - y) / rangeY) * dH;
+
+  const mapName = detail.value?.mapName;
+  const metadata = mapName ? MAP_METADATA[mapName] : null;
+
+  if (metadata && mapImage.value && mapImageLoaded.value) {
+    const size = Math.min(W, H);
+    const offsetX = (W - size) / 2;
+    const offsetY = (H - size) / 2;
+
+    // Draw background map
+    ctx.drawImage(mapImage.value, offsetX, offsetY, size, size);
+
+    // Override projection functions to match radar dimensions (1024x1024)
+    tx = (x: number) => {
+      const pxX = (x - metadata.posX) / metadata.scale;
+      return offsetX + (pxX / 1024) * size;
+    };
+    ty = (y: number) => {
+      const pxY = (metadata.posY - y) / metadata.scale;
+      return offsetY + (pxY / 1024) * size;
+    };
+  } else {
+    // Fallback: draw grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.035)';
+    ctx.lineWidth = 1;
+    const gs = 48;
+    for (let x = 0; x < W; x += gs) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for (let y = 0; y < H; y += gs) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+  }
 
   // ── Draw grenade arcs ────────────────────────────────────────────────────
   for (const g of grenades.value) {

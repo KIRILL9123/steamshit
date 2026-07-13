@@ -126,9 +126,8 @@ export const api = {
   },
 
   // --- settings ---
-  async getWatchFolder(): Promise<string | null> {
-    const res = await call<{ watch_folder: string | null }>('/api/settings/watch_folder');
-    return res.watch_folder;
+  async getWatchFolder(): Promise<{ watch_folder: string | null; suggested_folder: string | null }> {
+    return call<{ watch_folder: string | null; suggested_folder: string | null }>('/api/settings/watch_folder');
   },
   async setWatchFolder(path: string | null): Promise<void> {
     await call<void>('/api/settings/watch_folder', {

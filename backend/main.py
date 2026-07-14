@@ -28,7 +28,7 @@ from backend.database import (
     set_setting,
 )
 from backend.parser import get_file_hash, parse_demo
-from fastapi import Depends, FastAPI, HTTPException, Query, BackgroundTasks, Form, File
+from fastapi import Depends, FastAPI, HTTPException, Query, BackgroundTasks, Form, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from watchfiles import Change, awatch

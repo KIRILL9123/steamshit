@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import PageContainer from '@/components/layout/PageContainer.vue';
 import BaseCard from '@/components/ui/BaseCard.vue';
@@ -13,7 +13,6 @@ import { api } from '@/api';
 import type { DistanceBucket, PlayerMatchStats, WeaponBreakdown } from '@/types/domain';
 
 const route = useRoute();
-const router = useRouter();
 const store = useMatchesStore();
 const { detail, loading, lastError } = storeToRefs(store);
 
@@ -155,15 +154,7 @@ function teamColor(t: string | null | undefined): string {
     :title="header ? header.mapName : 'Матч'"
     :subtitle="header ? `#${header.id}` : ''"
   >
-    <template #actions>
-      <button
-        class="rounded p-1.5 text-fg-muted hover:bg-bg-elev-3 hover:text-fg"
-        title="Назад"
-        @click="router.push('/library')"
-      >
-        <Icon name="chevron-down" :size="16" class="rotate-90" />
-      </button>
-    </template>
+
 
     <div v-if="loading" class="py-10 text-center text-fg-dim">Загрузка…</div>
     <div v-else-if="!header" class="py-10 text-center text-fg-dim">

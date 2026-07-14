@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import Icon from '@/components/ui/Icon.vue';
 
@@ -14,31 +13,12 @@ interface NavItem {
 
 const route = useRoute();
 
-const matchId = computed<string | null>(() => {
-  const id = route.params.id;
-  return typeof id === 'string' ? id : null;
-});
-
 const items: NavItem[] = [
   { to: '/library',   label: 'Библиотека',   icon: 'layers',     group: 'main' },
   { to: '/progress',  label: 'Прогресс',     icon: 'line-chart', group: 'main' },
   { to: '/onboarding',label: 'Обучение',     icon: 'sparkles',   group: 'system' },
   { to: '/settings',  label: 'Настройки',    icon: 'settings',   group: 'system' },
 ];
-
-const matchItems = computed<NavItem[]>(() =>
-  matchId.value
-    ? [
-        { to: `/match/${matchId.value}/overview`,  label: 'Обзор',     icon: 'gauge',         group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/replay`,    label: 'Реплей',    icon: 'play',          group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/heatmaps`,  label: 'Тепловые',  icon: 'flame',         group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/utility`,   label: 'Утилиты',   icon: 'zap',           group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/anticheat`, label: 'Античит',   icon: 'shield-alert',  group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/coach`,     label: 'Коуч',      icon: 'brain',         group: 'match', matchId: true },
-        { to: `/match/${matchId.value}/highlights`, label: 'Хайлайты · позже', icon: 'video', group: 'match', matchId: true, disabled: true },
-      ]
-    : []
-);
 
 function isActive(to: string) {
   return route.path === to || route.path.startsWith(to + '/');
@@ -48,11 +28,11 @@ function isActive(to: string) {
 <template>
   <aside class="flex w-52 shrink-0 flex-col border-r border-border bg-bg-elev">
     <nav class="flex flex-1 flex-col gap-1 p-2">
-      <div v-for="(label, key) in { main: 'Навигация', match: 'Матч', system: 'Система' }" :key="key" class="mb-2">
+      <div v-for="(label, key) in { main: 'Навигация', system: 'Система' }" :key="key" class="mb-2">
         <div class="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-fg-dim">
           {{ label }}
         </div>
-        <template v-for="item in items.concat(matchItems).filter((i) => i.group === key)" :key="item.to">
+        <template v-for="item in items.filter((i) => i.group === key)" :key="item.to">
           <div
             v-if="item.disabled"
             class="flex cursor-not-allowed items-center gap-2.5 rounded px-2 py-1.5 text-sm text-fg-dim opacity-60"

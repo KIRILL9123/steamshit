@@ -742,7 +742,7 @@ async def generate_coach_tips(match_id: int):
             if trade_rate < 0.3:
                 tips.append({
                     "player": player_name,
-                    "category": "teamplay",
+                    "category": "trade",
                     "priority": 6,
                     "title": "Умираешь без трейда",
                     "body": (
@@ -870,6 +870,206 @@ async def generate_coach_tips(match_id: int):
                     })
     except Exception as e:
         log.warning(f"late_round_die tip failed: {e}")
+
+    # ------------------------------------------------------------------
+    # 7. Teamflash Habit — игрок систематически слепит тиммейтов.
+    # Порог: teammates_blinded >= 3 AND ratio > 0.3
+    # ------------------------------------------------------------------
+    try:
+        async with get_connection() as conn:
+            async with conn.execute(
+                "SELECT attacker, is_teammate FROM flash_events WHERE match_id = ?",
+                (match_id,)
+            ) as cursor:
+                flash_rows = await cursor.fetchall()
+        
+        player_flashes = {}
+        for row in flash_rows:
+            att = row["attacker"]
+            is_team = bool(row["is_teammate"])
+            if not att:
+                continue
+            if att not in player_flashes:
+                player_flashes[att] = {"teammate": 0, "enemy": 0}
+            if is_team:
+                player_flashes[att]["teammate"] += 1
+            else:
+                player_flashes[att]["enemy"] += 1
+
+        for player_name, f_data in player_flashes.items():
+            team_blind = f_data["teammate"]
+            enemy_blind = f_data["enemy"]
+            total_blind = team_blind + enemy_blind
+            if team_blind >= 3 and total_blind > 0 and (team_blind / total_blind) > 0.3:
+                ratio = team_blind / total_blind
+                tips.append({
+                    "player": player_name,
+                    "category": "utility",
+                    "priority": 7,
+                    "title": "Опасные световые (Teamflash Habit)",
+                    "body": (
+                        f"Ты ослепил {team_blind} тиммейтов в этом матче ({ratio * 100:.0f}% от всех твоих флешек). "
+                        "Старайся предупреждать команду перед броском флешки или используй моментальные гранаты (pop-flashes) за спину тиммейтам."
+                    ),
+                    "metric_name": "teamflash_ratio",
+                    "current_value": round(ratio * 100.0, 1),
+                    "target_value": 15.0,
+                    "evidence_json": json.dumps({
+                         "teammates_blinded": team_blind,
+                         "enemies_blinded": enemy_blind,
+                         "teamflash_ratio": round(ratio, 3)
+                    })
+                })
+    except Exception as e:
+        log.warning(f"teamflash_habit tip failed: {e}")
+
+    # ------------------------------------------------------------------
+    # 8. Died Holding Utility (SKIPPED):
+    # Inventory data on player death is not parsed/stored in our database. 
+    # Requiring a full demoparser2 run on the fly would be extremely slow 
+    # and depend on having the raw .dem file locally.
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # 9. Lone Wolf (Traded Poorly) — игрок умирает вдали от союзников
+    # Порог: trade_rate < 0.5 * avg_rate по матчу, при deaths >= 8
+    # ------------------------------------------------------------------
+    try:
+        trade_stats = compute_trade_stats(match_id)
+        rates = [d["trade_rate"] for d in trade_stats.values() if d["total_deaths"] > 0]
+        if rates:
+            avg_rate = sum(rates) / len(rates)
+            for player_name, data in trade_stats.items():
+                deaths_count = data["total_deaths"]
+                trade_rate = data["trade_rate"]
+                if deaths_count >= 8 and trade_rate < 0.5 * avg_rate:
+                    tips.append({
+                        "player": player_name,
+                        "category": "trade",
+                        "priority": 6,
+                        "title": "Игра в соло (Lone Wolf)",
+                        "body": (
+                            f"Твой процент разменов ({trade_rate * 100:.0f}%) значительно ниже среднего по матчу ({avg_rate * 100:.0f}%). "
+                            "Постарайся играть ближе к команде, чтобы твои смерти приносили пользу в виде ответных убийств."
+                        ),
+                        "metric_name": "trade_rate",
+                        "current_value": round(trade_rate * 100.0, 1),
+                        "target_value": round(avg_rate * 100.0, 1),
+                        "evidence_json": json.dumps({
+                            "traded_deaths": data["traded_deaths"],
+                            "total_deaths": deaths_count,
+                            "trade_rate": round(trade_rate, 3),
+                            "avg_match_trade_rate": round(avg_rate, 3)
+                        })
+                    })
+    except Exception as e:
+        log.warning(f"lone_wolf tip failed: {e}")
+
+    # ------------------------------------------------------------------
+    # 10. Missed Multikill Opportunity — урон по 2+ противникам без киллов
+    # Порог: 2+ missed rounds в матче
+    # ------------------------------------------------------------------
+    try:
+        async with get_connection() as conn:
+            async with conn.execute(
+                "SELECT round_id, attacker, victim, hp_damage FROM damages WHERE match_id = ?",
+                (match_id,)
+            ) as cursor:
+                damage_rows = await cursor.fetchall()
+            async with conn.execute(
+                "SELECT round_id, attacker FROM kills WHERE match_id = ?",
+                (match_id,)
+            ) as cursor:
+                kill_rows = await cursor.fetchall()
+
+        round_attacker_kills = {}
+        for row in kill_rows:
+            r_id = row["round_id"]
+            att = row["attacker"]
+            if not att:
+                continue
+            if (r_id, att) not in round_attacker_kills:
+                round_attacker_kills[(r_id, att)] = 0
+            round_attacker_kills[(r_id, att)] += 1
+
+        round_attacker_victims = {}
+        for row in damage_rows:
+            r_id = row["round_id"]
+            att = row["attacker"]
+            vic = row["victim"]
+            dmg = row["hp_damage"]
+            if not att or not vic or dmg <= 0:
+                continue
+            if (r_id, att) not in round_attacker_victims:
+                round_attacker_victims[(r_id, att)] = set()
+            round_attacker_victims[(r_id, att)].add(vic)
+
+        missed_rounds_count = {}
+        for (r_id, att), victims in round_attacker_victims.items():
+            if len(victims) >= 2:
+                kills_in_round = round_attacker_kills.get((r_id, att), 0)
+                if kills_in_round == 0:
+                    if att not in missed_rounds_count:
+                         missed_rounds_count[att] = 0
+                    missed_rounds_count[att] += 1
+
+        for player_name, missed_count in missed_rounds_count.items():
+            if missed_count >= 2:
+                tips.append({
+                    "player": player_name,
+                    "category": "aim",
+                    "priority": 6,
+                    "title": "Упущенные мультикиллы",
+                    "body": (
+                        f"В {missed_count} раундах ты наносил урон 2+ противникам, но не смог совершить ни одного убийства. "
+                        "Это указывает на проблемы со спреем или переводом прицела. Работай над target switching."
+                    ),
+                    "metric_name": "missed_multikill_rounds",
+                    "current_value": missed_count,
+                    "target_value": 0,
+                    "evidence_json": json.dumps({
+                        "missed_multikill_rounds": missed_count
+                    })
+                })
+    except Exception as e:
+        log.warning(f"missed_multikill tip failed: {e}")
+
+    # ------------------------------------------------------------------
+    # 11. Entry Fragger No Support — умер первым без размена
+    # Порог: entry_deaths >= 3 AND trade_rate < 0.2
+    # ------------------------------------------------------------------
+    try:
+        async with get_connection() as conn:
+            async with conn.execute(
+                "SELECT player, entry_deaths, trade_rate FROM player_match_stats WHERE match_id = ?",
+                (match_id,)
+            ) as cursor:
+                stat_rows = await cursor.fetchall()
+                 
+        for row in stat_rows:
+            player_name = row["player"]
+            entry_deaths = row["entry_deaths"] or 0
+            trade_rate = row["trade_rate"] or 0.0
+            if entry_deaths >= 3 and trade_rate < 0.2:
+                tips.append({
+                    "player": player_name,
+                    "category": "trade",
+                    "priority": 7,
+                    "title": "Вход без поддержки (Entry No Support)",
+                    "body": (
+                        f"Ты умер первым в {entry_deaths} раундах на входе, но твой процент разменов составляет всего {trade_rate * 100:.0f}%. "
+                        "Либо координируй свои выходы с тиммейтами, либо проси их идти вторым темпом для размена."
+                    ),
+                    "metric_name": "entry_no_support_rate",
+                    "current_value": round(trade_rate * 100.0, 1),
+                    "target_value": 40.0,
+                    "evidence_json": json.dumps({
+                        "entry_deaths": entry_deaths,
+                        "trade_rate": round(trade_rate, 3)
+                    })
+                })
+    except Exception as e:
+        log.warning(f"entry_fragger_no_support tip failed: {e}")
 
     # Save to database
     async with get_connection() as conn:

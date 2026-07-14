@@ -151,8 +151,7 @@ function teamColor(t: string | null | undefined): string {
 
 <template>
   <PageContainer
-    :title="header ? header.mapName : 'Матч'"
-    :subtitle="header ? `#${header.id}` : ''"
+    title="Обзор"
   >
 
 

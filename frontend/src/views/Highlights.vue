@@ -40,8 +40,8 @@ function preloadMapImage(mapName: string): Promise<HTMLImageElement | null> {
     }
     const meta = MAP_METADATA[mapName];
     const img = new Image();
-    img.src = meta.radarUrl;
     img.crossOrigin = 'anonymous';
+    img.src = meta.radarUrl;
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
   });

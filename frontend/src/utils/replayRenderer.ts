@@ -89,7 +89,8 @@ export function renderReplayFrame(opt: RenderFrameOptions) {
     mapImageLoaded,
   } = opt;
 
-  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#111215';
+  ctx.fillRect(0, 0, W, H);
 
   if (!round) {
     ctx.fillStyle = 'rgba(170,175,185,0.35)';

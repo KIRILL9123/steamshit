@@ -30,8 +30,8 @@ watch(() => detail.value?.mapName, (newMapName) => {
   if (newMapName && MAP_METADATA[newMapName]) {
     const meta = MAP_METADATA[newMapName];
     const img = new Image();
-    img.src = meta.radarUrl;
     img.crossOrigin = 'anonymous';
+    img.src = meta.radarUrl;
     mapImageLoaded.value = false;
     img.onload = () => {
       mapImage.value = img;

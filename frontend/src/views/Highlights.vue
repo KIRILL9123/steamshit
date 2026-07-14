@@ -1,23 +1,51 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
+import { storeToRefs } from 'pinia';
 import PageContainer from '@/components/layout/PageContainer.vue';
 import BaseCard from '@/components/ui/BaseCard.vue';
 import Icon from '@/components/ui/Icon.vue';
+import ProgressBar from '@/components/ui/ProgressBar.vue';
 import { api } from '@/api';
+import { useMatchesStore } from '@/stores/matches';
 import type { HighlightClip } from '@/types/domain';
+import { recordHighlightClip } from '@/utils/highlightRecorder';
+import { MAP_METADATA } from '@/constants/maps';
 
 const route = useRoute();
 const matchId = computed(() => Number(route.params.id));
 
-const videoPath = ref('');
+const store = useMatchesStore();
+const { detail } = storeToRefs(store);
+
 const clips = ref<HighlightClip[]>([]);
 const loading = ref(false);
 const processing = ref(false);
 const errorMsg = ref('');
 const successMsg = ref('');
 
-let pollInterval: number | null = null;
+// Export progress state
+const totalClips = ref(0);
+const currentClipIndex = ref(0);
+const currentClipName = ref('');
+const currentClipProgress = ref(0);
+let cancelRequested = false;
+
+// Preload radar image helper
+function preloadMapImage(mapName: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    if (!mapName || !MAP_METADATA[mapName]) {
+      resolve(null);
+      return;
+    }
+    const meta = MAP_METADATA[mapName];
+    const img = new Image();
+    img.src = meta.radarUrl;
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+  });
+}
 
 async function loadClips() {
   if (!Number.isFinite(matchId.value)) return;
@@ -33,109 +61,183 @@ async function loadClips() {
 }
 
 async function startHighlightGeneration() {
-  if (!videoPath.value.trim()) return;
-  
   processing.value = true;
   errorMsg.value = '';
   successMsg.value = '';
+  cancelRequested = false;
   
   try {
-    await api.cutHighlights(matchId.value, videoPath.value.trim());
-    successMsg.value = 'Процесс нарезки хайлайтов запущен в фоновом режиме. Клипы появятся ниже по мере готовности.';
-    
-    // Start polling every 3 seconds
-    if (pollInterval) clearInterval(pollInterval);
-    let attempts = 0;
-    const maxAttempts = 30; // 90 seconds
-    
-    pollInterval = window.setInterval(async () => {
-      attempts++;
-      try {
-        const freshClips = await api.getHighlights(matchId.value);
-        if (freshClips.length > clips.value.length) {
-          clips.value = freshClips;
-        }
-      } catch (err) {
-        console.error('Ошибка опроса хайлайтов:', err);
+    // 1. Detect highlights
+    const detected = await api.detectHighlights(matchId.value);
+    if (!detected || detected.length === 0) {
+      successMsg.value = 'В этом матче не обнаружено мультикиллов (3K+).';
+      processing.value = false;
+      return;
+    }
+
+    totalClips.value = detected.length;
+    currentClipIndex.value = 0;
+    currentClipName.value = '';
+    currentClipProgress.value = 0;
+
+    // 2. Preload radar image
+    const mapName = detail.value?.mapName || '';
+    const mapImg = await preloadMapImage(mapName);
+
+    // 3. Load rounds and caches
+    const roundsList = await api.listRounds(matchId.value);
+    const roundKillsCache = new Map<number, any[]>();
+    const roundGrenadesCache = new Map<number, any[]>();
+    const roundMovementsCache = new Map<number, any[]>();
+
+    async function getRoundData(roundNum: number) {
+      const r = roundsList.find((x: any) => x.roundNum === roundNum);
+      if (!r) throw new Error(`Раунд ${roundNum} не найден`);
+      
+      if (!roundKillsCache.has(r.id)) {
+        const [k, g, m] = await Promise.all([
+          api.getRoundKills(r.id),
+          api.getRoundGrenades(r.id),
+          api.getRoundMovement(r.id),
+        ]);
+        roundKillsCache.set(r.id, k);
+        roundGrenadesCache.set(r.id, g);
+        roundMovementsCache.set(r.id, m);
       }
       
-      if (attempts >= maxAttempts) {
-        stopPolling();
-        processing.value = false;
+      return {
+        roundDetail: r,
+        kills: roundKillsCache.get(r.id)!,
+        grenades: roundGrenadesCache.get(r.id)!,
+        movements: roundMovementsCache.get(r.id)!,
+      };
+    }
+
+    // 4. Sequential generation
+    for (let i = 0; i < detected.length; i++) {
+      if (cancelRequested) {
+        successMsg.value = 'Генерация отменена пользователем.';
+        break;
       }
-    }, 3000);
+
+      const h = detected[i];
+      currentClipIndex.value = i + 1;
+      currentClipName.value = `${h.type} в раунде ${h.round_num} от ${h.player}`;
+      currentClipProgress.value = 0;
+
+      try {
+        const { roundDetail, kills, grenades, movements } = await getRoundData(h.round_num);
+        
+        const blob = await recordHighlightClip({
+          matchId: matchId.value,
+          mapName,
+          playersDetail: detail.value?.players || [],
+          highlight: h,
+          roundDetail,
+          kills,
+          grenades,
+          movements,
+          mapImage: mapImg,
+        }, (pct) => {
+          currentClipProgress.value = pct;
+        });
+
+        // 5. Upload blob to server
+        const cleanPlayer = h.player.replace(/[^a-zA-Z0-9-_]/g, '');
+        const filename = `match_${matchId.value}_round_${h.round_num}_${cleanPlayer}_${h.type}.webm`;
+        
+        const formData = new FormData();
+        formData.append('round_num', h.round_num.toString());
+        formData.append('player', h.player);
+        formData.append('type', h.type);
+        formData.append('description', h.description);
+        formData.append('file', blob, filename);
+
+        await api.uploadHighlight(matchId.value, formData);
+      } catch (err: any) {
+        console.error(`Ошибка при нарезке хайлайта ${i + 1}:`, err);
+        errorMsg.value = `Ошибка на шаге ${i + 1}: ${err.message || err}`;
+      }
+    }
+
+    if (!cancelRequested) {
+      successMsg.value = `Успешно сгенерировано и сохранено клипов: ${totalClips.value}`;
+    }
     
+    // Reload gallery
+    await loadClips();
+
   } catch (e: any) {
-    errorMsg.value = e.message || 'Не удалось запустить нарезку хайлайтов';
+    errorMsg.value = e.message || 'Не удалось запустить генерацию';
+  } finally {
     processing.value = false;
   }
 }
 
-function stopPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
+function cancelGeneration() {
+  cancelRequested = true;
 }
 
-onMounted(loadClips);
-
-onBeforeUnmount(() => {
-  stopPolling();
+const overallProgress = computed(() => {
+  if (totalClips.value === 0) return 0;
+  return (currentClipIndex.value - 1 + currentClipProgress.value) / totalClips.value;
 });
 
-const isVideoPathValid = computed(() => {
-  const p = videoPath.value.trim().toLowerCase();
-  return p.length > 0 && p.endsWith('.mp4');
+onMounted(async () => {
+  if (matchId.value) {
+    if (!detail.value) await store.loadDetail(matchId.value);
+    await loadClips();
+  }
 });
 </script>
 
 <template>
-  <PageContainer title="Автонарезка хайлайтов" subtitle="Вырезайте лучшие игровые моменты прямо из ваших видеозаписей">
+  <PageContainer title="Автонарезка хайлайтов" subtitle="Автоматическое создание видеоклипов лучших моментов из 2D-реплея">
     <div class="space-y-6">
-      <!-- 1. Configuration Panel -->
-      <BaseCard title="Настройки нарезки" subtitle="Укажите путь к локальному видеофайлу для создания клипов">
+      <!-- 1. Generator Control Panel -->
+      <BaseCard title="Генератор хайлайтов" subtitle="Запись Canvas в видеофайл напрямую через браузер (без сторонних программ)">
         <div class="space-y-4 max-w-2xl">
-          <div>
-            <label for="video-path-input" class="block text-sm font-medium text-fg-muted mb-1.5">
-              Абсолютный путь к видеозаписи матча (.mp4):
-            </label>
-            <input
-              id="video-path-input"
-              v-model="videoPath"
-              type="text"
-              placeholder="C:\Users\Username\Videos\cs2_match.mp4"
-              class="w-full rounded border border-border bg-bg-elev-2 px-3 py-2 text-sm text-fg transition placeholder:text-fg-dim hover:border-border-hover focus:border-primary focus:outline-none"
-              :disabled="processing"
-            />
-            <p class="text-[11px] text-fg-dim mt-1.5">
-              Для нарезки требуется установленный в системе <b>ffmpeg</b>. Клипы вырезаются по таймингам мультикиллов (3K+) с частотой кадров исходного видео.
-            </p>
-          </div>
+          <p class="text-sm text-fg-muted leading-relaxed">
+            Система автоматически выявит раунды с мультикиллами (3K, 4K, 5K) и запишет видеофрагменты 2D-реплея со скоростью рендеринга вашего браузера.
+          </p>
 
-          <div class="flex items-center gap-3">
+          <div v-if="!processing" class="flex items-center gap-3">
             <button
-              class="flex items-center gap-2 rounded px-4 py-2 text-sm font-medium transition"
-              :class="
-                isVideoPathValid && !processing
-                  ? 'bg-primary text-primary-fg hover:bg-primary-hover'
-                  : 'bg-bg-elev-3 text-fg-dim cursor-not-allowed'
-              "
-              :disabled="!isVideoPathValid || processing"
+              class="flex items-center gap-2 rounded bg-primary text-primary-fg hover:bg-primary-hover px-4 py-2 text-sm font-medium transition"
               @click="startHighlightGeneration"
             >
-              <Icon v-if="processing" name="loader" class="animate-spin" />
-              <Icon v-else name="video" />
-              {{ processing ? 'Нарезка клипов...' : 'Сгенерировать хайлайты' }}
+              <Icon name="video" />
+              Сгенерировать хайлайты
             </button>
+          </div>
+
+          <div v-else class="space-y-3 rounded border border-border bg-bg-elev-1 p-4">
+            <div class="flex items-center justify-between text-sm">
+              <span class="font-medium text-fg">Экспорт видеоклипов...</span>
+              <span class="text-fg-dim font-mono">{{ currentClipIndex }} / {{ totalClips }}</span>
+            </div>
             
-            <button
-              v-if="processing"
-              class="rounded bg-danger/10 text-danger border border-danger/20 px-3 py-2 text-sm font-medium hover:bg-danger/20 transition"
-              @click="stopPolling(); processing = false;"
-            >
-              Остановить отслеживание
-            </button>
+            <div class="space-y-1">
+              <div class="flex items-center justify-between text-xs text-fg-muted">
+                <span class="truncate">Текущий: {{ currentClipName }}</span>
+                <span class="font-mono">{{ Math.round(currentClipProgress * 100) }}%</span>
+              </div>
+              <ProgressBar :value="currentClipProgress" variant="accent" :height="4" />
+            </div>
+
+            <div class="space-y-1 pt-1.5 border-t border-border/60">
+              <span class="text-xs text-fg-dim">Общий прогресс:</span>
+              <ProgressBar :value="overallProgress" variant="success" :height="6" />
+            </div>
+
+            <div class="pt-2">
+              <button
+                class="rounded bg-danger/10 text-danger border border-danger/20 px-3 py-1.5 text-xs font-medium hover:bg-danger/20 transition"
+                @click="cancelGeneration"
+              >
+                Отменить
+              </button>
+            </div>
           </div>
 
           <!-- Status Messages -->
@@ -157,7 +259,7 @@ const isVideoPathValid = computed(() => {
         </div>
         <div v-else-if="clips.length === 0" class="py-12 text-center text-fg-dim flex flex-col items-center justify-center gap-2">
           <Icon name="video" :size="32" class="text-fg-muted" />
-          <span>Хайлайты еще не нарезаны. Укажите видеозапись выше и нажмите Сгенерировать.</span>
+          <span>Хайлайты еще не сгенерированы. Нажмите кнопку выше для автоматического создания клипов.</span>
         </div>
         <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div v-for="c in clips" :key="c.clipPath" class="flex flex-col rounded border border-border bg-bg-elev-1 p-3 transition hover:border-border-hover">

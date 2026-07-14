@@ -16,7 +16,7 @@
     "format:js": "cd frontend && pnpm format",
     "format:py": "cd backend && ruff format .",
     "test": "pnpm test:py && pnpm test:js",
-    "test:py": "cd backend && pytest",
+    "test:py": "python -m pytest",
     "test:js": "cd frontend && pnpm test",
     "typecheck": "cd frontend && pnpm typecheck",
     "tools:extract-maps": "python tools/extract_maps.py"

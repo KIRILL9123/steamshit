@@ -159,6 +159,15 @@ export const api = {
       body: JSON.stringify({ video_path: videoPath }),
     });
   },
+  detectHighlights(matchId: number): Promise<any[]> {
+    return call<any[]>(`/api/matches/${matchId}/highlights/detect`);
+  },
+  uploadHighlight(matchId: number, formData: FormData): Promise<{ status: string; clip_path: string }> {
+    return call<{ status: string; clip_path: string }>(`/api/matches/${matchId}/highlights/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
 
   // --- settings ---
   async getWatchFolder(): Promise<{ watch_folder: string | null; suggested_folder: string | null }> {

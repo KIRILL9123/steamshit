@@ -28,7 +28,7 @@ from backend.database import (
     set_setting,
 )
 from backend.parser import get_file_hash, parse_demo
-from fastapi import Depends, FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi import Depends, FastAPI, HTTPException, Query, BackgroundTasks, Form, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from watchfiles import Change, awatch
@@ -400,3 +400,57 @@ async def cut_match_highlights_endpoint(match_id: int, req: CutHighlightsRequest
             
     background_tasks.add_task(cut_task)
     return {"status": "processing"}
+
+
+@app.get("/api/matches/{match_id}/highlights/detect")
+async def detect_match_highlights_endpoint(match_id: int):
+    from backend.highlights import detect_highlights
+    return detect_highlights(match_id)
+
+
+@app.post("/api/matches/{match_id}/highlights/upload")
+async def upload_match_highlight_endpoint(
+    match_id: int,
+    round_num: int = Form(...),
+    player: str = Form(...),
+    type: str = Form(...),
+    description: str = Form(...),
+    file: UploadFile = File(...)
+):
+    import os
+    import sqlite3
+    
+    os.makedirs("output", exist_ok=True)
+    
+    # Clean player name for safe filename
+    clean_player = "".join(c for c in player if c.isalnum() or c in ("-", "_"))
+    
+    ext = "webm"
+    if file.filename and "." in file.filename:
+        ext = file.filename.split(".")[-1]
+        
+    clip_filename = f"match_{match_id}_round_{round_num}_{clean_player}_{type}.{ext}"
+    clip_filepath = os.path.join("output", clip_filename)
+    
+    content = await file.read()
+    with open(clip_filepath, "wb") as f:
+        f.write(content)
+        
+    from backend.database import DB_PATH
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cur_check = conn.execute(
+            "SELECT id FROM highlight_clips WHERE match_id = ? AND clip_path = ?",
+            (match_id, clip_filename)
+        )
+        if not cur_check.fetchone():
+            conn.execute(
+                "INSERT INTO highlight_clips (match_id, round_num, player, type, clip_path, description) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (match_id, round_num, player, type, clip_filename, description)
+            )
+            conn.commit()
+    finally:
+        conn.close()
+        
+    return {"status": "success", "clip_path": clip_filename}

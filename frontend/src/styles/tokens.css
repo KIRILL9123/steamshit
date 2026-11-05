@@ -1,0 +1,74 @@
+/* ===========================================================================
+ * Design tokens
+ * Source of truth for the entire UI. Components read CSS custom properties
+ * directly (via the Tailwind config aliases) so a single edit changes the
+ * whole app. All values match docs/STYLE_GUIDE.md §2 (Scope.gg dark theme).
+ * ===========================================================================
+ */
+
+:root {
+  /* --- Background scale (0 = deepest) --- */
+  --c-bg: 14 15 18;            /* #0E0F12 — base canvas            */
+  --c-bg-elev: 22 24 30;       /* #16181E — cards / sidebar         */
+  --c-bg-elev-2: 28 31 38;     /* #1C1F26 — nested surfaces         */
+  --c-bg-elev-3: 36 39 48;     /* #242730 — hover/active rows       */
+
+  /* --- Foreground --- */
+  --c-fg: 230 232 240;         /* #E6E8F0 — primary text            */
+  --c-fg-muted: 170 175 185;   /* #AAAFB9 — secondary               */
+  --c-fg-dim: 110 115 130;     /* #6E7382 — disabled, captions      */
+
+  /* --- Borders --- */
+  --c-border: 45 49 58;        /* #2D313A                           */
+  --c-border-strong: 70 76 90; /* #464C5A                           */
+
+  /* --- Brand accent (CS2 orange) --- */
+  --c-accent: 255 140 0;       /* #FF8C00                           */
+  --c-accent-hover: 255 165 40; /* #FFA528                           */
+  --c-accent-dim: 90 50 0;     /* background-tint of accent         */
+
+  /* --- Secondary accents --- */
+  --c-info: 0 194 255;         /* #00C2FF — cyan highlight          */
+  --c-success: 80 200 120;     /* #50C878                           */
+  --c-warn: 240 180 60;        /* #F0B43C                           */
+  --c-danger: 230 70 70;       /* #E64646                           */
+
+  /* --- Team colours (CS2) --- */
+  --c-ct: 90 160 230;          /* #5AA0E6 — Counter-Terrorist       */
+  --c-t: 230 175 60;           /* #E6AF3C — Terrorist               */
+
+  /* --- Geometry --- */
+  --r-sm: 4px;
+  --r: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+
+  /* --- Spacing scale (8pt grid) --- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+
+  /* --- Typography --- */
+  --ff-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --ff-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 14px;
+  --fs-md: 16px;
+  --fs-lg: 20px;
+  --fs-xl: 28px;
+  --fs-xxl: 40px;
+  --lh-tight: 1.2;
+  --lh-base: 1.45;
+
+  /* --- Motion --- */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --d-fast: 120ms;
+  --d-base: 180ms;
+  --d-slow: 280ms;
+}
